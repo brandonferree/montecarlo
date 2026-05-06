@@ -57,17 +57,95 @@ SCENARIO_COLOR_HEX = [NAVY_HEX, TEAL_HEX, GOLD_HEX]
 
 
 # =============================================================================
+# Historical return data — Damodaran long-run U.S. asset class series
+# Equity: S&P 500 total return | Fixed Income: 10-Yr Treasury total return
+# Source-style series (annual, decimal returns), 1928–2024 (97 years).
+# These are the de facto reference figures for long-run U.S. asset class returns.
+# =============================================================================
+HISTORICAL_RETURNS_1928_2024: List[Tuple[int, float, float]] = [
+    # (year, S&P 500 total return, 10Y Treasury total return)
+    (1928,  0.4388,  0.0084), (1929, -0.0825,  0.0420), (1930, -0.2512,  0.0454),
+    (1931, -0.4384, -0.0256), (1932, -0.0864,  0.0879), (1933,  0.4998,  0.0186),
+    (1934, -0.0119,  0.0796), (1935,  0.4674,  0.0447), (1936,  0.3194,  0.0502),
+    (1937, -0.3534,  0.0138), (1938,  0.2928,  0.0421), (1939, -0.0110,  0.0441),
+    (1940, -0.1067,  0.0540), (1941, -0.1277, -0.0202), (1942,  0.1917,  0.0229),
+    (1943,  0.2506,  0.0249), (1944,  0.1903,  0.0258), (1945,  0.3582,  0.0380),
+    (1946, -0.0843,  0.0313), (1947,  0.0520,  0.0092), (1948,  0.0570,  0.0195),
+    (1949,  0.1830,  0.0466), (1950,  0.3081,  0.0043), (1951,  0.2368, -0.0030),
+    (1952,  0.1815,  0.0227), (1953, -0.0121,  0.0414), (1954,  0.5256,  0.0329),
+    (1955,  0.3260, -0.0134), (1956,  0.0744, -0.0226), (1957, -0.1046,  0.0680),
+    (1958,  0.4372, -0.0210), (1959,  0.1206, -0.0265), (1960,  0.0034,  0.1164),
+    (1961,  0.2664,  0.0206), (1962, -0.0881,  0.0564), (1963,  0.2261,  0.0182),
+    (1964,  0.1642,  0.0399), (1965,  0.1245,  0.0470), (1966, -0.1006,  0.0286),
+    (1967,  0.2398,  0.0177), (1968,  0.1106,  0.0357), (1969, -0.0850, -0.0500),
+    (1970,  0.0401,  0.1675), (1971,  0.1431,  0.0979), (1972,  0.1898,  0.0282),
+    (1973, -0.1466,  0.0366), (1974, -0.2647,  0.0199), (1975,  0.3720,  0.0361),
+    (1976,  0.2384,  0.1598), (1977, -0.0718,  0.0129), (1978,  0.0656, -0.0078),
+    (1979,  0.1844,  0.0067), (1980,  0.3242, -0.0299), (1981, -0.0491,  0.0820),
+    (1982,  0.2155,  0.3281), (1983,  0.2256,  0.0320), (1984,  0.0627,  0.1373),
+    (1985,  0.3173,  0.2571), (1986,  0.1867,  0.2428), (1987,  0.0525, -0.0496),
+    (1988,  0.1661,  0.0822), (1989,  0.3169,  0.1769), (1990, -0.0310,  0.0624),
+    (1991,  0.3047,  0.1500), (1992,  0.0762,  0.0936), (1993,  0.1008,  0.1421),
+    (1994,  0.0132, -0.0804), (1995,  0.3758,  0.2348), (1996,  0.2296,  0.0143),
+    (1997,  0.3336,  0.0994), (1998,  0.2858,  0.1492), (1999,  0.2104, -0.0825),
+    (2000, -0.0910,  0.1666), (2001, -0.1189,  0.0557), (2002, -0.2210,  0.1512),
+    (2003,  0.2868,  0.0038), (2004,  0.1088,  0.0449), (2005,  0.0491,  0.0287),
+    (2006,  0.1579,  0.0196), (2007,  0.0549,  0.1021), (2008, -0.3700,  0.2003),
+    (2009,  0.2646, -0.1112), (2010,  0.1506,  0.0846), (2011,  0.0211,  0.1604),
+    (2012,  0.1600,  0.0297), (2013,  0.3239, -0.0910), (2014,  0.1369,  0.1075),
+    (2015,  0.0138,  0.0128), (2016,  0.1196,  0.0069), (2017,  0.2183,  0.0280),
+    (2018, -0.0438, -0.0002), (2019,  0.3149,  0.0964), (2020,  0.1840,  0.1133),
+    (2021,  0.2871, -0.0442), (2022, -0.1811, -0.1777), (2023,  0.2629,  0.0305),
+    (2024,  0.2502,  0.0131),
+]
+
+# Pre-computed historical statistics for display purposes
+def _historical_stats():
+    eq = np.array([r[1] for r in HISTORICAL_RETURNS_1928_2024])
+    fi = np.array([r[2] for r in HISTORICAL_RETURNS_1928_2024])
+    return {
+        "eq_mu": float(eq.mean()),
+        "eq_sigma": float(eq.std(ddof=1)),
+        "fi_mu": float(fi.mean()),
+        "fi_sigma": float(fi.std(ddof=1)),
+        "worst_eq": float(eq.min()),
+        "worst_fi": float(fi.min()),
+        "correlation": float(np.corrcoef(eq, fi)[0, 1]),
+        "n_years": len(HISTORICAL_RETURNS_1928_2024),
+        "first_year": HISTORICAL_RETURNS_1928_2024[0][0],
+        "last_year": HISTORICAL_RETURNS_1928_2024[-1][0],
+    }
+
+HIST_STATS = _historical_stats()
+
+
+# =============================================================================
 # Data classes for inputs
 # =============================================================================
 @dataclass
 class ReturnAssumptions:
-    eq_mu: float          # annual mean (decimal)
-    eq_sigma: float       # annual std (decimal)
+    """
+    Return-generation specification.
+
+    Two methods supported:
+      - method="parametric": draw N(mu, sigma) each period, asset classes independent.
+      - method="bootstrap": resample matched historical (eq, fi) year pairs,
+                            re-centered so the sample mean equals (eq_mu, fi_mu).
+
+    eq_mu / fi_mu always represent the *forward-looking expected annual return*.
+    eq_sigma / fi_sigma are only used when method="parametric"; in bootstrap mode
+    the historical volatility, skew, and equity/FI correlation are preserved
+    automatically through resampling.
+    """
+    eq_mu: float
+    eq_sigma: float
     fi_mu: float
     fi_sigma: float
-    label: str            # e.g., "1960–2024" or "Custom"
-    worst_eq: float = -0.37
-    worst_fi: float = -0.131
+    label: str
+    method: str = "bootstrap"            # "bootstrap" | "parametric"
+    historical_period: str = "1928–2024" # used only for bootstrap labelling
+    worst_eq: float = -0.4384
+    worst_fi: float = -0.1777
 
 
 @dataclass
@@ -97,24 +175,46 @@ class SimInputs:
     seed: int = 20260501
 
 
-# Preset return assumption packages
+# Preset packages — bootstrap mode uses forward-looking expected returns
+# while preserving the historical volatility, skew, and correlation structure
+# from the 1928–2024 series.
 PRESETS = {
-    "1960–2024 (Becker default)": ReturnAssumptions(
+    "Bootstrap — Forward-looking (Moderate)": ReturnAssumptions(
+        eq_mu=0.0800, eq_sigma=HIST_STATS["eq_sigma"],
+        fi_mu=0.0450, fi_sigma=HIST_STATS["fi_sigma"],
+        label="Bootstrap • Forward-Looking Moderate",
+        method="bootstrap",
+        historical_period="1928–2024",
+        worst_eq=HIST_STATS["worst_eq"], worst_fi=HIST_STATS["worst_fi"],
+    ),
+    "Bootstrap — Forward-looking (Conservative)": ReturnAssumptions(
+        eq_mu=0.0700, eq_sigma=HIST_STATS["eq_sigma"],
+        fi_mu=0.0400, fi_sigma=HIST_STATS["fi_sigma"],
+        label="Bootstrap • Forward-Looking Conservative",
+        method="bootstrap",
+        historical_period="1928–2024",
+        worst_eq=HIST_STATS["worst_eq"], worst_fi=HIST_STATS["worst_fi"],
+    ),
+    "Bootstrap — Historical means (1928–2024)": ReturnAssumptions(
+        eq_mu=HIST_STATS["eq_mu"], eq_sigma=HIST_STATS["eq_sigma"],
+        fi_mu=HIST_STATS["fi_mu"], fi_sigma=HIST_STATS["fi_sigma"],
+        label="Bootstrap • Historical 1928–2024",
+        method="bootstrap",
+        historical_period="1928–2024",
+        worst_eq=HIST_STATS["worst_eq"], worst_fi=HIST_STATS["worst_fi"],
+    ),
+    "Parametric — 1960–2024 (Legacy Becker)": ReturnAssumptions(
         eq_mu=0.1179, eq_sigma=0.1667,
         fi_mu=0.0615, fi_sigma=0.0879,
-        label="1960–2024",
+        label="Parametric • 1960–2024",
+        method="parametric",
         worst_eq=-0.370, worst_fi=-0.131,
     ),
-    "1930–2024 (Long history)": ReturnAssumptions(
-        eq_mu=0.1100, eq_sigma=0.1950,
-        fi_mu=0.0520, fi_sigma=0.0760,
-        label="1930–2024",
-        worst_eq=-0.430, worst_fi=-0.131,
-    ),
-    "Forward-looking (Conservative)": ReturnAssumptions(
+    "Parametric — Forward-looking (Conservative)": ReturnAssumptions(
         eq_mu=0.0800, eq_sigma=0.1500,
         fi_mu=0.0450, fi_sigma=0.0700,
-        label="Forward-looking",
+        label="Parametric • Forward-Looking",
+        method="parametric",
         worst_eq=-0.370, worst_fi=-0.131,
     ),
 }
@@ -127,10 +227,38 @@ FREQ_TO_PER_YEAR = {"Annual": 1, "Quarterly": 4, "Monthly": 12}
 # Simulation
 # =============================================================================
 def blended_params(eq_w: float, fi_w: float, ra: ReturnAssumptions) -> Tuple[float, float]:
-    """Annual mean and std, assuming zero correlation between asset classes."""
+    """
+    Blended annual mean and std for display purposes only.
+    For parametric mode: classical formula (asset classes assumed uncorrelated).
+    For bootstrap mode: computed from the historical series, preserving the
+        natural eq/fi correlation captured in matched-pair sampling.
+    """
+    if ra.method == "parametric":
+        mu = eq_w * ra.eq_mu + fi_w * ra.fi_mu
+        sig = np.sqrt((eq_w * ra.eq_sigma) ** 2 + (fi_w * ra.fi_sigma) ** 2)
+        return mu, sig
+    # Bootstrap: forward-looking mean is the weighted forward μ.
+    # Volatility uses the actual historical eq/fi series (with their correlation)
+    # since re-centering only shifts the mean, not the dispersion.
     mu = eq_w * ra.eq_mu + fi_w * ra.fi_mu
-    sig = np.sqrt((eq_w * ra.eq_sigma) ** 2 + (fi_w * ra.fi_sigma) ** 2)
+    eq_hist = np.array([r[1] for r in HISTORICAL_RETURNS_1928_2024])
+    fi_hist = np.array([r[2] for r in HISTORICAL_RETURNS_1928_2024])
+    blended_series = eq_w * eq_hist + fi_w * fi_hist
+    sig = float(blended_series.std(ddof=1))
     return mu, sig
+
+
+def _build_recentered_pairs(ra: ReturnAssumptions) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Build the re-centered historical (eq, fi) return series.
+    For each year: r_recentered = r_historical - mean_historical + mean_forward.
+    Volatility, skew, and the eq/fi correlation are preserved exactly.
+    """
+    eq_hist = np.array([r[1] for r in HISTORICAL_RETURNS_1928_2024])
+    fi_hist = np.array([r[2] for r in HISTORICAL_RETURNS_1928_2024])
+    eq_recentered = eq_hist - eq_hist.mean() + ra.eq_mu
+    fi_recentered = fi_hist - fi_hist.mean() + ra.fi_mu
+    return eq_recentered, fi_recentered
 
 
 def simulate_scenario(scen: Scenario, inputs: SimInputs, seed_offset: int) -> dict:
@@ -143,19 +271,22 @@ def simulate_scenario(scen: Scenario, inputs: SimInputs, seed_offset: int) -> di
             of each period (split evenly across k periods).
       - Years contribution_years+1 .. horizon:
             DISTRIBUTION of `annual_distribution * (1+infl)^(y-1)` is REMOVED at
-            start of each period. Note the inflation factor still uses Year 1 as
-            the base, so a $200K Year-1 distribution starting in Year 11 pays
-            $200K × 1.03^10 = $268,783 in Year 11 nominal dollars.
-      - Per-period return drawn from N(mu/k, sig/sqrt(k)) where k = periods/year.
-      - Returns applied AFTER the contribution/distribution at start of period.
+            start of each period.
+      - Cash flows applied AT THE START of each period; returns applied to
+        post-cashflow balance.
 
-    Returns balances of shape (N_PATHS, horizon_years + 1) — year-end values.
+    Return generation (one of):
+      - method="parametric": each period's return drawn from N(μ/k, σ/√k)
+        with asset classes treated as independent.
+      - method="bootstrap": each YEAR, sample one historical (eq, fi) pair from
+        the re-centered 1928–2024 series. Combine by portfolio weights to get
+        an annual portfolio return. Decompose to k periods using
+        per_period = (1 + annual)^(1/k) - 1 (same return each quarter within
+        a year — preserves the historical-year semantics).
     """
     rng = np.random.default_rng(inputs.seed + seed_offset)
-    mu_a, sig_a = blended_params(scen.eq_weight, scen.fi_weight, inputs.return_assumptions)
+    ra = inputs.return_assumptions
     k = FREQ_TO_PER_YEAR[inputs.distribution_frequency]
-    mu_p = mu_a / k
-    sig_p = sig_a / np.sqrt(k)
 
     n = inputs.n_paths
     yrs = inputs.horizon_years
@@ -165,28 +296,56 @@ def simulate_scenario(scen: Scenario, inputs: SimInputs, seed_offset: int) -> di
 
     contrib_years = max(0, int(scen.contribution_years))
 
+    # Pre-compute return generators based on method
+    if ra.method == "bootstrap":
+        eq_recentered, fi_recentered = _build_recentered_pairs(ra)
+        n_hist = len(eq_recentered)
+        # Annual portfolio return for any sampled year:
+        portfolio_returns = scen.eq_weight * eq_recentered + scen.fi_weight * fi_recentered
+    else:
+        mu_a, sig_a = blended_params(scen.eq_weight, scen.fi_weight, ra)
+        mu_p = mu_a / k
+        sig_p = sig_a / np.sqrt(k)
+
     for y in range(1, yrs + 1):
         infl_factor = (1 + inputs.inflation) ** (y - 1)
 
         if y <= contrib_years:
-            # Contribution phase: add money to the portfolio
             annual_contrib = scen.annual_contribution * infl_factor
-            per_period_cf = -annual_contrib / k   # negative = inflow (subtracted from "outflow")
+            per_period_cf = -annual_contrib / k
         else:
-            # Distribution phase: pull money from the portfolio
             annual_dist = scen.annual_distribution * infl_factor
             per_period_cf = annual_dist / k
 
-        for _ in range(k):
-            bal = bal - per_period_cf            # outflow if positive, inflow if negative
-            bal = np.maximum(bal, 0.0)           # floor at zero (ruined paths stay there)
-            r = rng.normal(mu_p, sig_p, size=n)
-            bal = np.maximum(bal * (1 + r), 0.0)
+        if ra.method == "bootstrap":
+            # Sample one historical year per path (matched eq/fi correlation
+            # is preserved automatically because we sample year indices, not
+            # eq and fi independently).
+            year_idx = rng.integers(0, n_hist, size=n)
+            annual_r = portfolio_returns[year_idx]
+            # Decompose into k equal per-period returns. Using geometric
+            # decomposition: (1+r_period)^k = (1+r_annual)
+            with np.errstate(invalid="ignore"):
+                per_period_r = np.sign(1 + annual_r) * np.power(
+                    np.abs(1 + annual_r), 1.0 / k
+                ) - 1.0
+            for _ in range(k):
+                bal = bal - per_period_cf
+                bal = np.maximum(bal, 0.0)
+                bal = np.maximum(bal * (1 + per_period_r), 0.0)
+        else:
+            for _ in range(k):
+                bal = bal - per_period_cf
+                bal = np.maximum(bal, 0.0)
+                r = rng.normal(mu_p, sig_p, size=n)
+                bal = np.maximum(bal * (1 + r), 0.0)
+
         yearly[:, y] = bal
 
     yr_final = yearly[:, -1]
     yr10 = yearly[:, min(10, yrs)]
     yr20 = yearly[:, min(20, yrs)]
+    mu_a, sig_a = blended_params(scen.eq_weight, scen.fi_weight, ra)
 
     return {
         "scenario": scen,
@@ -637,9 +796,16 @@ def build_pdf(results: List[dict], inputs: SimInputs,
         f"Monte Carlo Analysis is a mathematical process used to implement complex statistical "
         f"methods that chart the probability of certain financial outcomes at certain times in "
         f"the future. This charting is accomplished by generating {inputs.n_paths:,} possible "
-        f"economic scenarios. Each scenario randomly draws return data from a distribution "
-        f"based on means and standard deviations for equity and fixed income asset classes "
-        f"({inputs.return_assumptions.label}).",
+        f"economic scenarios. " + (
+            f"Each scenario draws annual return data via <b>matched-pair bootstrap "
+            f"resampling</b> from {inputs.return_assumptions.historical_period} historical "
+            f"S&amp;P 500 and 10-Year Treasury total returns, re-centered so the long-run mean "
+            f"equals the forward-looking expected return."
+            if inputs.return_assumptions.method == "bootstrap"
+            else f"Each scenario randomly draws return data from a normal distribution based "
+                 f"on the means and standard deviations specified in the assumption set "
+                 f"({inputs.return_assumptions.label})."
+        ),
         f"The Monte Carlo simulation uses {inputs.n_paths:,} scenarios to determine the "
         f"probability of outcomes resulting from the asset allocation choices and underlying "
         "return and volatility assumptions. Some scenarios will assume very favorable financial "
@@ -724,6 +890,30 @@ def build_pdf(results: List[dict], inputs: SimInputs,
                 f"{inputs.inflation*100:.1f}% annually."
             )
 
+    ra = inputs.return_assumptions
+    if ra.method == "bootstrap":
+        method_text = (
+            f"Expected returns are <b>forward-looking</b> "
+            f"(equity {ra.eq_mu*100:.2f}%, fixed income {ra.fi_mu*100:.2f}%), but the "
+            f"<b>volatility, fat tails, skew, and equity/fixed-income correlation are "
+            f"derived from actual historical experience</b> over {ra.historical_period} "
+            f"({HIST_STATS['n_years']} years of S&amp;P 500 and 10-Year Treasury total returns). "
+            f"The simulation uses <b>matched-pair bootstrap resampling</b>: each year of "
+            f"each path randomly draws a real historical year, then re-centers it so the "
+            f"long-run mean equals the forward-looking assumption. This preserves real-"
+            f"world properties — including 2008-style left-tail events and the way bonds "
+            f"and stocks tend to move together — that a normal distribution would erase."
+        )
+    else:
+        method_text = (
+            f"Expected returns and volatility are derived from the "
+            f"<b>{ra.label}</b> assumption set: equity mean {ra.eq_mu*100:.2f}% "
+            f"(σ = {ra.eq_sigma*100:.2f}%), fixed income mean {ra.fi_mu*100:.2f}% "
+            f"(σ = {ra.fi_sigma*100:.2f}%). Per-period returns are drawn from a normal "
+            f"distribution parameterized to those annual figures, with asset classes "
+            f"treated as independent."
+        )
+
     exec_text = (
         f"This report presents a {inputs.horizon_years}-year Monte Carlo simulation for a "
         f"${inputs.initial:,.0f} portfolio, evaluating {n_scen} Equity / Fixed Income "
@@ -732,35 +922,52 @@ def build_pdf(results: List[dict], inputs: SimInputs,
         f"{inputs.inflation*100:.1f}% annually to maintain real purchasing power. "
         f"{contrib_phase_text}"
         f"<br/><br/>"
-        f"Expected returns and volatility are derived from the <b>{inputs.return_assumptions.label}</b> "
-        f"assumption set: equity mean {inputs.return_assumptions.eq_mu*100:.2f}% "
-        f"(σ = {inputs.return_assumptions.eq_sigma*100:.2f}%), fixed income mean "
-        f"{inputs.return_assumptions.fi_mu*100:.2f}% "
-        f"(σ = {inputs.return_assumptions.fi_sigma*100:.2f}%). "
-        f"The simulation runs {inputs.n_paths:,} independent paths per scenario, with "
-        f"per-period returns drawn from a normal distribution parameterized to those annual figures."
+        f"{method_text} "
+        f"The simulation runs {inputs.n_paths:,} independent paths per scenario."
     )
     story.append(Paragraph(exec_text, P_BODY))
 
     # Return assumptions table
-    story.extend(section_header(f"Return Assumptions — {inputs.return_assumptions.label}"))
-    ra = inputs.return_assumptions
+    story.extend(section_header(f"Return Assumptions — {ra.label}"))
     blended_data = [(blended_params(s.eq_weight, s.fi_weight, ra)) for s in inputs.scenarios]
     header = ["Parameter", "Equity", "Fixed Income"] + [
         f"{int(s.eq_weight*100)}/{int(s.fi_weight*100)} Blend" for s in inputs.scenarios
     ]
-    ra_data = [
-        header,
-        ["Mean Return", f"{ra.eq_mu*100:.2f}%", f"{ra.fi_mu*100:.2f}%"]
-        + [f"{m*100:.2f}%" for m, _ in blended_data],
-        ["Annual Std. Deviation (σ)", f"{ra.eq_sigma*100:.2f}%", f"{ra.fi_sigma*100:.2f}%"]
-        + [f"{s*100:.2f}%" for _, s in blended_data],
-        ["Worst Calendar Year", f"{ra.worst_eq*100:.1f}%", f"{ra.worst_fi*100:.1f}%"]
-        + ["—"] * n_scen,
-        ["Inflation on Distributions", "—", "—"]
-        + [f"{inputs.inflation*100:.2f}%"] * n_scen,
-        ["Source / Period", ra.label, ra.label] + [ra.label] * n_scen,
-    ]
+
+    if ra.method == "bootstrap":
+        # Show both forward-looking μ AND historical σ separately
+        ra_data = [
+            header,
+            ["Forward-looking Mean (μ)", f"{ra.eq_mu*100:.2f}%", f"{ra.fi_mu*100:.2f}%"]
+            + [f"{m*100:.2f}%" for m, _ in blended_data],
+            [f"Historical Std. Dev (σ)",
+             f"{HIST_STATS['eq_sigma']*100:.2f}%", f"{HIST_STATS['fi_sigma']*100:.2f}%"]
+            + [f"{s*100:.2f}%" for _, s in blended_data],
+            ["Eq/FI Correlation (preserved)",
+             f"ρ = {HIST_STATS['correlation']:.3f}",
+             f"ρ = {HIST_STATS['correlation']:.3f}"] + ["—"] * n_scen,
+            ["Worst Historical Year",
+             f"{HIST_STATS['worst_eq']*100:.1f}%", f"{HIST_STATS['worst_fi']*100:.1f}%"]
+            + ["—"] * n_scen,
+            ["Inflation on Cash Flows", "—", "—"]
+            + [f"{inputs.inflation*100:.2f}%"] * n_scen,
+            ["Method", "Bootstrap", "Bootstrap"]
+            + ["Bootstrap"] * n_scen,
+        ]
+    else:
+        ra_data = [
+            header,
+            ["Mean Return (μ)", f"{ra.eq_mu*100:.2f}%", f"{ra.fi_mu*100:.2f}%"]
+            + [f"{m*100:.2f}%" for m, _ in blended_data],
+            ["Annual Std. Deviation (σ)", f"{ra.eq_sigma*100:.2f}%", f"{ra.fi_sigma*100:.2f}%"]
+            + [f"{s*100:.2f}%" for _, s in blended_data],
+            ["Worst Calendar Year", f"{ra.worst_eq*100:.1f}%", f"{ra.worst_fi*100:.1f}%"]
+            + ["—"] * n_scen,
+            ["Inflation on Cash Flows", "—", "—"]
+            + [f"{inputs.inflation*100:.2f}%"] * n_scen,
+            ["Method", "Parametric (normal)", "Parametric (normal)"]
+            + ["Parametric"] * n_scen,
+        ]
     base_w = 1.85
     blend_w = max(0.65, (PAGE_W - 1.2 * inch - (base_w + 0.85 + 0.95) * inch)
                   / max(n_scen, 1) / inch)
@@ -788,10 +995,23 @@ def build_pdf(results: List[dict], inputs: SimInputs,
 
     # ==================== PATHS CHART + SUMMARY TABLE ====================
     story.extend(section_header("Monte Carlo Simulation — Scenario Comparison"))
+    if inputs.return_assumptions.method == "bootstrap":
+        method_blurb = (
+            "Each year of each path samples a real historical year (matched "
+            "equity / fixed-income pair) from the re-centered "
+            f"{inputs.return_assumptions.historical_period} series. Annual returns "
+            "are decomposed into equal per-period returns to honor the "
+            f"{inputs.distribution_frequency.lower()} cash-flow schedule."
+        )
+    else:
+        method_blurb = (
+            f"Returns are drawn at the {inputs.distribution_frequency.lower()} "
+            "frequency from normal distributions parameterized by the chosen "
+            "annual return assumptions."
+        )
     story.append(Paragraph(
         f"Each scenario was simulated across <b>{inputs.n_paths:,} independent paths</b> "
-        f"over {inputs.horizon_years} years. Returns are drawn at the {inputs.distribution_frequency.lower()} "
-        "frequency from normal distributions parameterized by the chosen annual return assumptions. "
+        f"over {inputs.horizon_years} years. {method_blurb} "
         "The lines below show median outcomes; shaded regions show the 20th–80th percentile bands "
         "of portfolio value.",
         P_BODY,
@@ -989,18 +1209,34 @@ def build_pdf(results: List[dict], inputs: SimInputs,
             "Contribution and distribution amounts are entered in today's (Year-1) dollars "
             "and inflated forward at the inflation rate to preserve real purchasing power | "
         )
+    ra2 = inputs.return_assumptions
+    if ra2.method == "bootstrap":
+        ret_text = (
+            f"Equity forward-looking μ = {ra2.eq_mu*100:.2f}%, fixed income μ = {ra2.fi_mu*100:.2f}%; "
+            f"historical σ and eq/FI correlation preserved from {ra2.historical_period} "
+            f"({HIST_STATS['n_years']}-year matched-pair bootstrap, re-centered) | "
+        )
+        cor_text = (
+            f"Equity/fixed income correlation captured naturally via matched-pair bootstrap "
+            f"sampling | "
+        )
+    else:
+        ret_text = (
+            f"Equity expected return {ra2.eq_mu*100:.2f}% (σ = {ra2.eq_sigma*100:.2f}%); "
+            f"fixed income expected return {ra2.fi_mu*100:.2f}% (σ = {ra2.fi_sigma*100:.2f}%); "
+            f"source: {ra2.label} | "
+            f"Per-period returns drawn independently from N(μ/k, σ/√k) where k = periods per year | "
+        )
+        cor_text = "Asset-class returns assumed uncorrelated for blended-volatility calculation | "
+
     assump = (
         f"<b>Key Assumptions & Disclosures:</b> Initial investment ${inputs.initial:,.0f} | "
         f"{contrib_note}"
         f"Distribution frequency: {inputs.distribution_frequency} | "
         f"Annual escalation: {inputs.inflation*100:.1f}% | Time horizon: {inputs.horizon_years} years | "
-        f"Equity expected return {inputs.return_assumptions.eq_mu*100:.2f}% "
-        f"(σ = {inputs.return_assumptions.eq_sigma*100:.2f}%); "
-        f"fixed income expected return {inputs.return_assumptions.fi_mu*100:.2f}% "
-        f"(σ = {inputs.return_assumptions.fi_sigma*100:.2f}%); source: {inputs.return_assumptions.label} | "
-        f"Per-period returns drawn independently from N(μ/k, σ/√k) where k = periods per year | "
+        f"{ret_text}"
         f"Cash flows applied at the start of each period; returns applied to post-cashflow balance | "
-        f"Asset-class returns assumed uncorrelated for blended-volatility calculation | "
+        f"{cor_text}"
         f"No tax drag, advisory fees, or rebalancing costs modeled | "
         f"Monte Carlo simulation: {inputs.n_paths:,} paths per scenario | "
         "Past performance is not indicative of future results. This analysis is for illustrative "
@@ -1263,28 +1499,103 @@ def main():
 
         st.divider()
         st.subheader("Return Assumptions")
-        preset_name = st.selectbox(
-            "Source", list(PRESETS.keys()) + ["Custom"], index=0
+
+        method = st.radio(
+            "Method",
+            ["Bootstrap (recommended)", "Parametric (normal distribution)"],
+            index=0,
+            help=(
+                "Bootstrap resamples actual historical years (1928–2024) and "
+                "re-centers them to your forward-looking mean — preserving real-"
+                "world volatility, fat tails, and the equity/fixed-income "
+                "correlation. Parametric draws from a normal distribution, which "
+                "is faster but understates downside risk."
+            ),
         )
-        if preset_name == "Custom":
-            colA, colB = st.columns(2)
-            with colA:
-                st.caption("**Equity**")
-                eq_mu = st.number_input("Mean (%)", value=11.79, step=0.1,
-                                        key="eq_mu") / 100
-                eq_sig = st.number_input("Std Dev (%)", value=16.67, step=0.1,
-                                         key="eq_sig") / 100
-            with colB:
-                st.caption("**Fixed Income**")
-                fi_mu = st.number_input("Mean (%)", value=6.15, step=0.1,
-                                        key="fi_mu") / 100
-                fi_sig = st.number_input("Std Dev (%)", value=8.79, step=0.1,
-                                         key="fi_sig") / 100
-            ra = ReturnAssumptions(eq_mu, eq_sig, fi_mu, fi_sig, "Custom")
-        else:
-            ra = PRESETS[preset_name]
+
+        if method.startswith("Bootstrap"):
+            preset_choice = st.selectbox(
+                "Preset",
+                ["Forward-looking (Moderate): 8% / 4.5%",
+                 "Forward-looking (Conservative): 7% / 4%",
+                 "Historical means (1928–2024): 11.87% / 4.89%",
+                 "Custom forward-looking μ"],
+                index=0,
+            )
+            if preset_choice.startswith("Forward-looking (Moderate)"):
+                ra = PRESETS["Bootstrap — Forward-looking (Moderate)"]
+            elif preset_choice.startswith("Forward-looking (Conservative)"):
+                ra = PRESETS["Bootstrap — Forward-looking (Conservative)"]
+            elif preset_choice.startswith("Historical means"):
+                ra = PRESETS["Bootstrap — Historical means (1928–2024)"]
+            else:
+                # Custom forward-looking
+                colA, colB = st.columns(2)
+                with colA:
+                    st.caption("**Equity**")
+                    eq_mu_in = st.number_input(
+                        "Forward μ (%)", value=8.0, step=0.25,
+                        min_value=0.0, max_value=20.0, key="boot_eq_mu",
+                    ) / 100
+                with colB:
+                    st.caption("**Fixed Income**")
+                    fi_mu_in = st.number_input(
+                        "Forward μ (%)", value=4.5, step=0.25,
+                        min_value=0.0, max_value=12.0, key="boot_fi_mu",
+                    ) / 100
+                ra = ReturnAssumptions(
+                    eq_mu=eq_mu_in,
+                    eq_sigma=HIST_STATS["eq_sigma"],
+                    fi_mu=fi_mu_in,
+                    fi_sigma=HIST_STATS["fi_sigma"],
+                    label=f"Bootstrap • Custom (μ={eq_mu_in*100:.1f}%/{fi_mu_in*100:.1f}%)",
+                    method="bootstrap",
+                    historical_period="1928–2024",
+                    worst_eq=HIST_STATS["worst_eq"],
+                    worst_fi=HIST_STATS["worst_fi"],
+                )
             st.caption(
-                f"Equity μ = {ra.eq_mu*100:.2f}%, σ = {ra.eq_sigma*100:.2f}%  |  "
+                f"**Forward μ:** Eq {ra.eq_mu*100:.2f}% • FI {ra.fi_mu*100:.2f}%  \n"
+                f"**Historical σ (preserved):** Eq {HIST_STATS['eq_sigma']*100:.2f}% • "
+                f"FI {HIST_STATS['fi_sigma']*100:.2f}%  \n"
+                f"**Eq/FI ρ (preserved):** {HIST_STATS['correlation']:.3f}  \n"
+                f"**Worst historical year:** Eq {HIST_STATS['worst_eq']*100:.1f}% • "
+                f"FI {HIST_STATS['worst_fi']*100:.1f}%"
+            )
+        else:
+            # Parametric mode — keep legacy presets
+            param_choice = st.selectbox(
+                "Preset",
+                ["1960–2024 (Legacy Becker)",
+                 "Forward-looking Conservative (8%/4.5%)",
+                 "Custom"],
+                index=0,
+            )
+            if param_choice == "1960–2024 (Legacy Becker)":
+                ra = PRESETS["Parametric — 1960–2024 (Legacy Becker)"]
+            elif param_choice.startswith("Forward-looking"):
+                ra = PRESETS["Parametric — Forward-looking (Conservative)"]
+            else:
+                colA, colB = st.columns(2)
+                with colA:
+                    st.caption("**Equity**")
+                    eq_mu_in = st.number_input("Mean (%)", value=11.79, step=0.1,
+                                            key="param_eq_mu") / 100
+                    eq_sig_in = st.number_input("Std Dev (%)", value=16.67, step=0.1,
+                                             key="param_eq_sig") / 100
+                with colB:
+                    st.caption("**Fixed Income**")
+                    fi_mu_in = st.number_input("Mean (%)", value=6.15, step=0.1,
+                                            key="param_fi_mu") / 100
+                    fi_sig_in = st.number_input("Std Dev (%)", value=8.79, step=0.1,
+                                             key="param_fi_sig") / 100
+                ra = ReturnAssumptions(
+                    eq_mu=eq_mu_in, eq_sigma=eq_sig_in,
+                    fi_mu=fi_mu_in, fi_sigma=fi_sig_in,
+                    label="Parametric • Custom", method="parametric",
+                )
+            st.caption(
+                f"Eq μ = {ra.eq_mu*100:.2f}%, σ = {ra.eq_sigma*100:.2f}%  |  "
                 f"FI μ = {ra.fi_mu*100:.2f}%, σ = {ra.fi_sigma*100:.2f}%"
             )
 
