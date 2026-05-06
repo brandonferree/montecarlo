@@ -853,6 +853,228 @@ def build_pdf(results: List[dict], inputs: SimInputs,
 # =============================================================================
 # Streamlit UI
 # =============================================================================
+def _inject_becker_css():
+    """Apply Becker brand styling to all Streamlit components."""
+    st.markdown(
+        f"""
+        <style>
+        /* ===== Becker Capital Management — Brand Theme ===== */
+
+        /* Slider track + thumb in Becker gold */
+        div[data-testid="stSlider"] [data-baseweb="slider"] div[role="slider"] {{
+            background-color: {GOLD_HEX} !important;
+            border-color: {GOLD_HEX} !important;
+        }}
+        div[data-testid="stSlider"] [data-baseweb="slider"] > div > div > div {{
+            background: {GOLD_HEX} !important;
+        }}
+        div[data-testid="stSlider"] [data-testid="stTickBarMin"],
+        div[data-testid="stSlider"] [data-testid="stTickBarMax"],
+        div[data-testid="stSlider"] [data-testid="stThumbValue"] {{
+            color: {GOLD_HEX} !important;
+            font-weight: 600 !important;
+        }}
+
+        /* Primary buttons — navy fill, gold border on hover */
+        button[kind="primary"] {{
+            background-color: {NAVY_HEX} !important;
+            color: white !important;
+            border: 1.5px solid {GOLD_HEX} !important;
+            font-weight: 600 !important;
+            letter-spacing: 0.3px !important;
+        }}
+        button[kind="primary"]:hover {{
+            background-color: {GOLD_HEX} !important;
+            color: {NAVY_DARK_HEX} !important;
+            border-color: {GOLD_HEX} !important;
+        }}
+
+        /* Secondary buttons (download) — gold-on-navy outline style */
+        button[kind="secondary"] {{
+            border: 1.5px solid {GOLD_HEX} !important;
+            color: {GOLD_HEX} !important;
+            font-weight: 600 !important;
+        }}
+        button[kind="secondary"]:hover {{
+            background-color: {GOLD_HEX} !important;
+            color: {NAVY_DARK_HEX} !important;
+        }}
+
+        /* Metric values — gold for emphasis */
+        div[data-testid="stMetricValue"] {{
+            color: {GOLD_HEX} !important;
+            font-weight: 700 !important;
+        }}
+        div[data-testid="stMetricLabel"] {{
+            color: #CCCCCC !important;
+            font-size: 12px !important;
+        }}
+
+        /* Section headers — gold underline accent */
+        h1, h2, h3 {{
+            color: white !important;
+            font-weight: 600 !important;
+        }}
+
+        /* Sidebar headers — gold */
+        section[data-testid="stSidebar"] h1,
+        section[data-testid="stSidebar"] h2,
+        section[data-testid="stSidebar"] h3 {{
+            color: {GOLD_HEX} !important;
+            border-bottom: 1.5px solid {GOLD_HEX};
+            padding-bottom: 6px;
+            margin-bottom: 10px;
+            letter-spacing: 0.5px;
+        }}
+
+        /* Radio buttons in gold when selected */
+        div[role="radiogroup"] label[data-checked="true"] {{
+            color: {GOLD_HEX} !important;
+        }}
+
+        /* Custom Becker header card */
+        .becker-header {{
+            background: linear-gradient(135deg, {NAVY_DARK_HEX} 0%, {NAVY_HEX} 100%);
+            border-left: 6px solid {GOLD_HEX};
+            border-radius: 4px;
+            padding: 22px 28px;
+            margin-bottom: 24px;
+            display: flex;
+            align-items: center;
+            gap: 24px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+        }}
+        .becker-monogram {{
+            flex-shrink: 0;
+            width: 72px;
+            height: 72px;
+            position: relative;
+        }}
+        .becker-monogram .fifty {{
+            position: absolute;
+            top: 50%;
+            left: 0;
+            transform: translateY(-50%);
+            font-family: Georgia, serif;
+            font-size: 48px;
+            font-weight: 900;
+            color: rgba(184, 146, 77, 0.35);
+            letter-spacing: -3px;
+        }}
+        .becker-monogram .b-circle {{
+            position: absolute;
+            top: 50%;
+            right: 0;
+            transform: translateY(-50%);
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            border: 2.5px solid {GOLD_HEX};
+            background: {NAVY_DARK_HEX};
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: {GOLD_HEX};
+            font-family: Georgia, serif;
+            font-size: 24px;
+            font-weight: 900;
+        }}
+        .becker-header-text {{
+            flex: 1;
+        }}
+        .becker-eyebrow {{
+            color: {GOLD_HEX};
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 2px;
+            margin-bottom: 4px;
+        }}
+        .becker-title {{
+            color: white;
+            font-size: 28px;
+            font-weight: 700;
+            line-height: 1.15;
+        }}
+        .becker-subtitle {{
+            color: #B8C4D6;
+            font-size: 13px;
+            margin-top: 4px;
+        }}
+
+        /* Scenario card headers */
+        .becker-scenario-card {{
+            background: rgba(31, 58, 95, 0.45);
+            border-left: 4px solid var(--scenario-color);
+            border-radius: 3px;
+            padding: 10px 14px;
+            margin-bottom: 8px;
+            color: white;
+            font-weight: 700;
+            letter-spacing: 0.3px;
+        }}
+
+        /* Footer */
+        .becker-footer {{
+            margin-top: 32px;
+            padding: 14px 0;
+            border-top: 1px solid rgba(184, 146, 77, 0.3);
+            color: #8A99B0;
+            font-size: 11px;
+            text-align: center;
+            letter-spacing: 0.3px;
+        }}
+        .becker-footer .firm {{
+            color: {GOLD_HEX};
+            font-weight: 600;
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_header():
+    """Becker-branded header with 50-year monogram."""
+    st.markdown(
+        """
+        <div class="becker-header">
+          <div class="becker-monogram">
+            <div class="fifty">50</div>
+            <div class="b-circle">B</div>
+          </div>
+          <div class="becker-header-text">
+            <div class="becker-eyebrow">BECKER CAPITAL MANAGEMENT  •  EST. 1976</div>
+            <div class="becker-title">Monte Carlo Portfolio Analysis</div>
+            <div class="becker-subtitle">
+              Configure inputs, preview Monte Carlo outcomes, and download a branded
+              PDF report for client review.
+            </div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_footer():
+    """Becker-branded footer line matching the PDF disclaimer style."""
+    st.markdown(
+        """
+        <div class="becker-footer">
+          <span class="firm">BECKER CAPITAL MANAGEMENT</span>
+          &nbsp; | &nbsp; BECKERCAP.COM &nbsp; | &nbsp; 503.223.1720
+          &nbsp; | &nbsp; Established 1976
+          <br/>
+          <span style="font-style:italic;">
+            This report is hypothetical and for illustrative purposes only.
+            Not investment advice. Past performance is no guarantee of future results.
+          </span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def main():
     st.set_page_config(
         page_title="Becker Capital — Monte Carlo Portfolio Analysis",
@@ -860,21 +1082,8 @@ def main():
         layout="wide",
     )
 
-    # Custom header
-    st.markdown(
-        f"""
-        <div style="background-color:{NAVY_HEX}; padding:18px 24px; border-radius:6px;
-                    border-left:6px solid {GOLD_HEX}; margin-bottom:18px;">
-          <div style="color:{GOLD_HEX}; font-size:11px; font-weight:bold;
-                      letter-spacing:1.5px;">BECKER CAPITAL MANAGEMENT • EST. 1976</div>
-          <div style="color:white; font-size:26px; font-weight:bold; margin-top:4px;">
-              Monte Carlo Portfolio Analysis</div>
-          <div style="color:#CCCCCC; font-size:13px; margin-top:2px;">
-              Configure inputs, preview results, and download a branded PDF report.</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    _inject_becker_css()
+    _render_header()
 
     # ----- Sidebar: inputs -----
     with st.sidebar:
@@ -945,9 +1154,9 @@ def main():
         name_def, eq_def, dist_def = default_scenarios[i]
         with col:
             st.markdown(
-                f"<div style='background:{LIGHT_BG_HEX}; padding:8px 12px; "
-                f"border-left:4px solid {SCENARIO_COLOR_HEX[i]}; border-radius:3px; "
-                f"font-weight:bold; color:{NAVY_HEX};'>{name_def}</div>",
+                f"<div class='becker-scenario-card' "
+                f"style='--scenario-color:{SCENARIO_COLOR_HEX[i]};'>"
+                f"{name_def}</div>",
                 unsafe_allow_html=True,
             )
             name = st.text_input("Name", value=name_def, key=f"name_{i}")
@@ -1034,9 +1243,11 @@ def main():
             )
 
     st.caption(
-        "This report is hypothetical and for illustrative purposes only. "
-        "Not investment advice. Past performance is no guarantee of future results."
+        "Tip: change the equity sliders to compare allocations side by side, "
+        "or adjust the annual distribution amount to test different withdrawal levels."
     )
+
+    _render_footer()
 
 
 if __name__ == "__main__":
