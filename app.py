@@ -73,9 +73,16 @@ class ReturnAssumptions:
 @dataclass
 class Scenario:
     name: str
-    eq_weight: float        # 0–1
-    fi_weight: float        # 0–1
-    annual_distribution: float
+    eq_weight: float                      # 0–1
+    fi_weight: float                      # 0–1
+    annual_distribution: float            # in today's (Year-1) dollars
+    contribution_years: int = 0           # number of years to contribute (0 = none)
+    annual_contribution: float = 0.0      # in today's (Year-1) dollars
+
+    @property
+    def distribution_start_year(self) -> int:
+        """The first year in which a distribution is paid (1-indexed)."""
+        return self.contribution_years + 1
 
 
 @dataclass
@@ -129,9 +136,19 @@ def blended_params(eq_w: float, fi_w: float, ra: ReturnAssumptions) -> Tuple[flo
 def simulate_scenario(scen: Scenario, inputs: SimInputs, seed_offset: int) -> dict:
     """
     Run Monte Carlo for a single scenario.
-    - Distribution paid at the start of each period (annual/quarterly/monthly).
-    - Annual distribution escalates by inflation.
-    - Per-period return drawn from N(mu/k, sig/sqrt(k)) where k = periods/year.
+
+    Cash-flow model (all amounts are entered in Year-1 'today's' dollars):
+      - Years 1 .. contribution_years:
+            CONTRIBUTION of `annual_contribution * (1+infl)^(y-1)` is ADDED at start
+            of each period (split evenly across k periods).
+      - Years contribution_years+1 .. horizon:
+            DISTRIBUTION of `annual_distribution * (1+infl)^(y-1)` is REMOVED at
+            start of each period. Note the inflation factor still uses Year 1 as
+            the base, so a $200K Year-1 distribution starting in Year 11 pays
+            $200K × 1.03^10 = $268,783 in Year 11 nominal dollars.
+      - Per-period return drawn from N(mu/k, sig/sqrt(k)) where k = periods/year.
+      - Returns applied AFTER the contribution/distribution at start of period.
+
     Returns balances of shape (N_PATHS, horizon_years + 1) — year-end values.
     """
     rng = np.random.default_rng(inputs.seed + seed_offset)
@@ -146,11 +163,23 @@ def simulate_scenario(scen: Scenario, inputs: SimInputs, seed_offset: int) -> di
     yearly[:, 0] = inputs.initial
     bal = np.full(n, float(inputs.initial))
 
+    contrib_years = max(0, int(scen.contribution_years))
+
     for y in range(1, yrs + 1):
-        annual_dist = scen.annual_distribution * (1 + inputs.inflation) ** (y - 1)
-        per_period = annual_dist / k
+        infl_factor = (1 + inputs.inflation) ** (y - 1)
+
+        if y <= contrib_years:
+            # Contribution phase: add money to the portfolio
+            annual_contrib = scen.annual_contribution * infl_factor
+            per_period_cf = -annual_contrib / k   # negative = inflow (subtracted from "outflow")
+        else:
+            # Distribution phase: pull money from the portfolio
+            annual_dist = scen.annual_distribution * infl_factor
+            per_period_cf = annual_dist / k
+
         for _ in range(k):
-            bal = np.maximum(bal - per_period, 0.0)
+            bal = bal - per_period_cf            # outflow if positive, inflow if negative
+            bal = np.maximum(bal, 0.0)           # floor at zero (ruined paths stay there)
             r = rng.normal(mu_p, sig_p, size=n)
             bal = np.maximum(bal * (1 + r), 0.0)
         yearly[:, y] = bal
@@ -178,6 +207,8 @@ def simulate_scenario(scen: Scenario, inputs: SimInputs, seed_offset: int) -> di
         "iqr_yfinal": float(np.percentile(yr_final, 75) - np.percentile(yr_final, 25)),
         "p_ruin": float(np.mean(yr_final <= 0.0)),
         "p_above_init": float(np.mean(yr_final > inputs.initial)),
+        "total_contributed": total_contributed(scen, inputs.inflation),
+        "total_distributed": total_distributed(scen, inputs.inflation, yrs),
     }
 
 
@@ -185,8 +216,28 @@ def run_all_simulations(inputs: SimInputs) -> List[dict]:
     return [simulate_scenario(s, inputs, i * 1000) for i, s in enumerate(inputs.scenarios)]
 
 
-def total_distributed(scen: Scenario, inflation: float, years: int) -> float:
-    return sum(scen.annual_distribution * (1 + inflation) ** y for y in range(years))
+def total_contributed(scen: Scenario, inflation: float) -> float:
+    """Sum of contributions in nominal dollars across the contribution phase."""
+    if scen.contribution_years <= 0 or scen.annual_contribution <= 0:
+        return 0.0
+    return sum(
+        scen.annual_contribution * (1 + inflation) ** y
+        for y in range(int(scen.contribution_years))
+    )
+
+
+def total_distributed(scen: Scenario, inflation: float, total_years: int) -> float:
+    """
+    Sum of distributions in nominal dollars across the distribution phase only.
+    Distributions begin at year `contribution_years + 1` and run through year `total_years`.
+    """
+    start = int(scen.contribution_years) + 1
+    if start > total_years or scen.annual_distribution <= 0:
+        return 0.0
+    return sum(
+        scen.annual_distribution * (1 + inflation) ** (y - 1)
+        for y in range(start, total_years + 1)
+    )
 
 
 # =============================================================================
@@ -510,16 +561,41 @@ def build_pdf(results: List[dict], inputs: SimInputs,
     else:
         dist_label = dist_strs + " / yr"
 
+    # Build a contribution-phase summary if any scenario has contributions
+    has_contrib = any(s.contribution_years > 0 and s.annual_contribution > 0
+                      for s in inputs.scenarios)
+    if has_contrib:
+        contrib_amounts = sorted(set(s.annual_contribution for s in inputs.scenarios
+                                     if s.contribution_years > 0))
+        contrib_years_set = sorted(set(s.contribution_years for s in inputs.scenarios
+                                       if s.contribution_years > 0))
+        if len(contrib_amounts) == 1:
+            contrib_amt_str = f"${contrib_amounts[0]:,.0f} / yr"
+        else:
+            contrib_amt_str = " – ".join(f"${a:,.0f}" for a in contrib_amounts)
+        if len(contrib_years_set) == 1:
+            contrib_yrs = contrib_years_set[0]
+            phase_str = f"Yrs 1–{contrib_yrs} contribute, Yrs {contrib_yrs+1}–{inputs.horizon_years} distribute"
+        else:
+            phase_str = "Per-scenario contribution period"
+
     cover_fields = [
         (f"${inputs.initial:,.0f}", "Initial Investment"),
         (eq_strs, f"Equity / Fixed Income ({n_scen} Scenario{'s' if n_scen > 1 else ''})"),
-        (dist_label, f"Annual Distribution (paid {inputs.distribution_frequency.lower()}, "
+    ]
+    if has_contrib:
+        cover_fields.append(
+            (contrib_amt_str,
+             f"Annual Contribution (today's $, {phase_str})")
+        )
+    cover_fields += [
+        (dist_label, f"Annual Distribution (today's $, paid {inputs.distribution_frequency.lower()}, "
                      f"+{inputs.inflation*100:.1f}% / yr)"),
         (f"{min(mu_strs)*100:.2f}% – {max(mu_strs)*100:.2f}%"
          if n_scen > 1 else f"{mu_strs[0]*100:.2f}%",
          f"Blended Expected Return ({inputs.return_assumptions.label})"),
         (f"{inputs.horizon_years} Years", "Time Horizon"),
-        (f"{inputs.inflation*100:.2f}%", "Inflation Rate (Distributions)"),
+        (f"{inputs.inflation*100:.2f}%", "Inflation Rate"),
     ]
     for v, l in cover_fields:
         story.append(cover_field(v, l))
@@ -620,12 +696,41 @@ def build_pdf(results: List[dict], inputs: SimInputs,
         f"<b>{int(s.eq_weight*100)}/{int(s.fi_weight*100)} ({s.name})</b>"
         for s in inputs.scenarios
     )
+
+    # Optional contribution-phase paragraph
+    contrib_phase_text = ""
+    if has_contrib:
+        if len(contrib_years_set) == 1 and len(contrib_amounts) == 1:
+            cy = contrib_years_set[0]
+            ca = contrib_amounts[0]
+            contrib_phase_text = (
+                f"<br/><br/>"
+                f"<b>Contribution phase (Years 1–{cy}):</b> "
+                f"${ca:,.0f}/yr in today's dollars is added to the portfolio, "
+                f"escalating {inputs.inflation*100:.1f}% annually so that real purchasing "
+                f"power is preserved. Distributions begin in Year {cy+1}. "
+                f"All amounts entered are stated in today's (Year-1) dollars; the "
+                f"simulation translates them into nominal cash flows by compounding "
+                f"inflation forward. For example, a ${ca:,.0f} contribution in Year 1 "
+                f"becomes ${ca * (1 + inputs.inflation) ** (cy-1):,.0f} in Year {cy} "
+                f"to maintain the same real value."
+            )
+        else:
+            contrib_phase_text = (
+                "<br/><br/>"
+                "<b>Contribution phase:</b> Each scenario adds capital to the portfolio "
+                "for an initial period before distributions begin. Both contributions and "
+                f"distributions are entered in today's dollars and inflated forward at "
+                f"{inputs.inflation*100:.1f}% annually."
+            )
+
     exec_text = (
         f"This report presents a {inputs.horizon_years}-year Monte Carlo simulation for a "
         f"${inputs.initial:,.0f} portfolio, evaluating {n_scen} Equity / Fixed Income "
         f"allocation strateg{'ies' if n_scen > 1 else 'y'} — {scen_descs}. "
         f"Distributions are paid {inputs.distribution_frequency.lower()}, escalating "
         f"{inputs.inflation*100:.1f}% annually to maintain real purchasing power. "
+        f"{contrib_phase_text}"
         f"<br/><br/>"
         f"Expected returns and volatility are derived from the <b>{inputs.return_assumptions.label}</b> "
         f"assumption set: equity mean {inputs.return_assumptions.eq_mu*100:.2f}% "
@@ -704,16 +809,53 @@ def build_pdf(results: List[dict], inputs: SimInputs,
         f"{int(r['scenario'].fi_weight*100)}%)"
         for r in results
     ]
-    rows = [
-        ["Annual Distribution (Yr 1)"]
-        + [f"${r['scenario'].annual_distribution:,.0f}" for r in results],
-        [f"Per-Period Distribution (Yr 1, {inputs.distribution_frequency})"]
+
+    rows = []
+
+    # Contribution rows (only shown if any scenario has contributions)
+    if has_contrib:
+        rows.append(
+            ["Annual Contribution (today's $)"]
+            + [(f"${r['scenario'].annual_contribution:,.0f}"
+                if r['scenario'].contribution_years > 0 else "—")
+               for r in results]
+        )
+        rows.append(
+            ["Contribution Years"]
+            + [(f"Yrs 1–{r['scenario'].contribution_years}"
+                if r['scenario'].contribution_years > 0 else "—")
+               for r in results]
+        )
+        rows.append(
+            ["Total Contributed (nominal)"]
+            + [(fmt_m(r["total_contributed"])
+                if r['scenario'].contribution_years > 0 else "—")
+               for r in results]
+        )
+
+    # Distribution rows
+    rows.append(
+        ["Annual Distribution (today's $)"]
+        + [f"${r['scenario'].annual_distribution:,.0f}" for r in results]
+    )
+    if has_contrib:
+        rows.append(
+            ["Distribution Start Year"]
+            + [f"Yr {r['scenario'].distribution_start_year}" for r in results]
+        )
+    rows.append(
+        [f"Per-Period Distribution ({inputs.distribution_frequency}, today's $)"]
         + [f"${r['scenario'].annual_distribution/FREQ_TO_PER_YEAR[inputs.distribution_frequency]:,.0f}"
-           for r in results],
-        ["Annual Escalation"] + [f"{inputs.inflation*100:.1f}%"] * n_scen,
-        [f"Total Distributed ({inputs.horizon_years} yrs)"]
-        + [fmt_m(total_distributed(r['scenario'], inputs.inflation, inputs.horizon_years))
-           for r in results],
+           for r in results]
+    )
+    rows.append(["Annual Escalation"] + [f"{inputs.inflation*100:.1f}%"] * n_scen)
+    rows.append(
+        [f"Total Distributed (nominal, {inputs.horizon_years} yrs)"]
+        + [fmt_m(r["total_distributed"]) for r in results]
+    )
+
+    # Outcome rows
+    rows += [
         ["Median Value — Year 10"] + [fmt_m(r["median_y10"]) for r in results],
         ["Median Value — Year 20"] + [fmt_m(r["median_y20"]) for r in results],
         [f"Median Value — Year {inputs.horizon_years}"]
@@ -819,9 +961,17 @@ def build_pdf(results: List[dict], inputs: SimInputs,
     story.extend(section_header("Key Findings"))
     for r in results:
         s = r["scenario"]
+        if s.contribution_years > 0 and s.annual_contribution > 0:
+            cf_desc = (
+                f"${s.annual_contribution:,.0f}/yr contributed Yrs 1–{s.contribution_years}, "
+                f"then ${s.annual_distribution:,.0f}/yr distributed Yrs "
+                f"{s.distribution_start_year}–{inputs.horizon_years}"
+            )
+        else:
+            cf_desc = f"${s.annual_distribution:,.0f}/yr distributed"
         finding = (
             f"<b>{s.name} — {int(s.eq_weight*100)}% Equity / {int(s.fi_weight*100)}% "
-            f"Fixed Income, ${s.annual_distribution:,.0f}/yr:</b> "
+            f"Fixed Income, {cf_desc}:</b> "
             f"At the median, this allocation projects a Year-{inputs.horizon_years} portfolio "
             f"value of <b>{fmt_m(r['median_yfinal'])}</b>, with a 20th–80th percentile range of "
             f"{fmt_m(r['p20_yfinal'])} to {fmt_m(r['p80_yfinal'])}. "
@@ -833,8 +983,15 @@ def build_pdf(results: List[dict], inputs: SimInputs,
         story.append(Paragraph(finding, P_BODY))
 
     story.append(Spacer(1, 8))
+    contrib_note = ""
+    if has_contrib:
+        contrib_note = (
+            "Contribution and distribution amounts are entered in today's (Year-1) dollars "
+            "and inflated forward at the inflation rate to preserve real purchasing power | "
+        )
     assump = (
         f"<b>Key Assumptions & Disclosures:</b> Initial investment ${inputs.initial:,.0f} | "
+        f"{contrib_note}"
         f"Distribution frequency: {inputs.distribution_frequency} | "
         f"Annual escalation: {inputs.inflation*100:.1f}% | Time horizon: {inputs.horizon_years} years | "
         f"Equity expected return {inputs.return_assumptions.eq_mu*100:.2f}% "
@@ -842,7 +999,7 @@ def build_pdf(results: List[dict], inputs: SimInputs,
         f"fixed income expected return {inputs.return_assumptions.fi_mu*100:.2f}% "
         f"(σ = {inputs.return_assumptions.fi_sigma*100:.2f}%); source: {inputs.return_assumptions.label} | "
         f"Per-period returns drawn independently from N(μ/k, σ/√k) where k = periods per year | "
-        f"Distributions paid at the start of each period; returns applied to post-distribution balance | "
+        f"Cash flows applied at the start of each period; returns applied to post-cashflow balance | "
         f"Asset-class returns assumed uncorrelated for blended-volatility calculation | "
         f"No tax drag, advisory fees, or rebalancing costs modeled | "
         f"Monte Carlo simulation: {inputs.n_paths:,} paths per scenario | "
@@ -1141,22 +1298,23 @@ def main():
     # ----- Main area: scenario builder -----
     st.subheader("Scenarios")
     st.caption(
-        "Configure 1–3 scenarios. Vary the equity allocation, the distribution amount, "
-        "or both to compare strategies side by side."
+        "Configure 1–3 scenarios. Each scenario can have a contribution phase "
+        "(money added) followed by a distribution phase (money withdrawn). "
+        "All amounts are entered in today's dollars and inflated forward automatically."
     )
 
     n_scen = st.radio("Number of scenarios", [1, 2, 3], index=2, horizontal=True)
 
     default_scenarios = [
-        ("Scenario A", 60, 225_000),
-        ("Scenario B", 70, 225_000),
-        ("Scenario C", 80, 225_000),
+        ("Scenario A", 60, 225_000, 0,  0),
+        ("Scenario B", 70, 225_000, 0,  0),
+        ("Scenario C", 80, 225_000, 0,  0),
     ]
 
     scenarios: List[Scenario] = []
     cols = st.columns(n_scen)
     for i, col in enumerate(cols):
-        name_def, eq_def, dist_def = default_scenarios[i]
+        name_def, eq_def, dist_def, cy_def, ca_def = default_scenarios[i]
         with col:
             st.markdown(
                 f"<div class='becker-scenario-card' "
@@ -1169,13 +1327,65 @@ def main():
                 "Equity %", 0, 100, eq_def, step=5, key=f"eq_{i}",
             )
             st.caption(f"Fixed Income: **{100 - eq_pct}%**")
-            dist = st.number_input(
-                "Annual Distribution ($)", min_value=0, max_value=10_000_000,
-                value=dist_def, step=5_000, key=f"dist_{i}", format="%d",
+
+            # ----- Contribution phase -----
+            st.markdown(
+                f"<div style='color:{GOLD_HEX}; font-size:12px; font-weight:700; "
+                f"letter-spacing:0.5px; margin-top:8px; padding-top:6px; "
+                f"border-top:1px solid rgba(184,146,77,0.3);'>"
+                f"CONTRIBUTION PHASE (OPTIONAL)</div>",
+                unsafe_allow_html=True,
             )
+            contrib_yrs = st.number_input(
+                "Contribution Years (0 = none)",
+                min_value=0, max_value=int(horizon) - 1,
+                value=cy_def, step=1, key=f"cy_{i}",
+                help="Number of years to contribute before distributions begin. "
+                     "Set to 0 if there is no contribution phase.",
+            )
+            contrib_amt = st.number_input(
+                "Annual Contribution ($, today's dollars)",
+                min_value=0, max_value=10_000_000,
+                value=ca_def, step=5_000, key=f"ca_{i}", format="%d",
+                disabled=(contrib_yrs == 0),
+                help="In today's dollars. Will be inflated forward automatically.",
+            )
+
+            # ----- Distribution phase -----
+            dist_start_year = int(contrib_yrs) + 1
+            dist_label_suffix = (
+                f" — starts Yr {dist_start_year}" if contrib_yrs > 0 else ""
+            )
+            st.markdown(
+                f"<div style='color:{GOLD_HEX}; font-size:12px; font-weight:700; "
+                f"letter-spacing:0.5px; margin-top:10px; padding-top:6px; "
+                f"border-top:1px solid rgba(184,146,77,0.3);'>"
+                f"DISTRIBUTION PHASE{dist_label_suffix.upper()}</div>",
+                unsafe_allow_html=True,
+            )
+            dist = st.number_input(
+                "Annual Distribution ($, today's dollars)",
+                min_value=0, max_value=10_000_000,
+                value=dist_def, step=5_000, key=f"dist_{i}", format="%d",
+                help="In today's dollars. Will be inflated forward to maintain "
+                     "real purchasing power.",
+            )
+
+            # Show what the first nominal distribution will be (for transparency)
+            if contrib_yrs > 0:
+                nominal_first = dist * ((1 + inflation) ** (dist_start_year - 1))
+                st.caption(
+                    f"Nominal Year-{dist_start_year} distribution: "
+                    f"**${nominal_first:,.0f}**"
+                )
+
             scenarios.append(Scenario(
-                name=name, eq_weight=eq_pct / 100,
-                fi_weight=(100 - eq_pct) / 100, annual_distribution=float(dist),
+                name=name,
+                eq_weight=eq_pct / 100,
+                fi_weight=(100 - eq_pct) / 100,
+                annual_distribution=float(dist),
+                contribution_years=int(contrib_yrs),
+                annual_contribution=float(contrib_amt),
             ))
 
     inputs = SimInputs(
@@ -1204,9 +1414,18 @@ def main():
     for col, r in zip(metric_cols, results):
         s = r["scenario"]
         with col:
+            if s.contribution_years > 0 and s.annual_contribution > 0:
+                phase_desc = (
+                    f"+${s.annual_contribution/1000:,.0f}K/yr × {s.contribution_years} yrs, "
+                    f"then −${s.annual_distribution/1000:,.0f}K/yr"
+                )
+            else:
+                phase_desc = f"−${s.annual_distribution/1000:,.0f}K/yr"
+
             st.markdown(
-                f"**{s.name}** — {int(s.eq_weight*100)}/{int(s.fi_weight*100)}, "
-                f"${s.annual_distribution:,.0f}/yr"
+                f"**{s.name}** — {int(s.eq_weight*100)}/{int(s.fi_weight*100)}<br/>"
+                f"<span style='color:#B8C4D6; font-size:12px;'>{phase_desc}</span>",
+                unsafe_allow_html=True,
             )
             st.metric(
                 f"Median Yr {horizon}",
