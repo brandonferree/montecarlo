@@ -1,7 +1,18 @@
 [theme]
+# Becker Capital Management brand theme — dark
 base = "dark"
-primaryColor = "#B8924D"
-backgroundColor = "#0F1B2D"
+
+# Navy backdrop matches the PDF cover (slightly deeper than #1F3A5F for screen contrast)
+backgroundColor = "#0F1F36"
+
+# Sidebar uses the official Becker navy from the PDF/website
 secondaryBackgroundColor = "#1F3A5F"
-textColor = "#F5F5F5"
+
+# Becker gold — used on sliders, buttons, links, focus rings
+primaryColor = "#B8924D"
+
+# Body text — slightly off-white for readability without being harsh
+textColor = "#F0F0F0"
+
+# Sans-serif throughout to match the website
 font = "sans serif"
