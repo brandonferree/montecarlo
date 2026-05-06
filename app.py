@@ -386,37 +386,42 @@ def build_pdf(results: List[dict], inputs: SimInputs,
         canv.setFillColor(NAVY)
         canv.rect(0, 0, 2.5 * inch, PAGE_H, stroke=0, fill=1)
         canv.setFillColor(GOLD)
-        canv.rect(0, 0, PAGE_W, 0.45 * inch, stroke=0, fill=1)
+        canv.rect(0, 0, PAGE_W, 0.35 * inch, stroke=0, fill=1)
         canv.setFillColor(NAVY_DARK)
         canv.setFont("Helvetica-Bold", 9)
-        canv.drawString(0.4 * inch, 0.18 * inch, "BECKER CAPITAL MANAGEMENT")
+        canv.drawString(0.4 * inch, 0.13 * inch, "BECKER CAPITAL MANAGEMENT")
         canv.setFillColor(colors.white)
         canv.setFont("Helvetica-Oblique", 7.5)
         canv.drawRightString(
-            PAGE_W - 0.4 * inch, 0.18 * inch,
+            PAGE_W - 0.4 * inch, 0.13 * inch,
             "This report is hypothetical and for illustrative purposes only. Not investment advice.",
         )
-        # 50-B monogram
-        cx = 1.25 * inch
-        cy = 4.7 * inch
+        # 50-B monogram: a "5" then a gold-ringed circle (the "0") with "B" inside.
+        # The circle IS the zero, not a separate element overlapping a printed 0.
+        cx_5 = 0.85 * inch    # center of the "5"
+        cx_0 = 1.75 * inch    # center of the "0" / B-circle
+        cy = 4.7 * inch       # vertical baseline-ish
+        # The "5" — large, flat dark navy on the panel
         canv.setFillColor(NAVY_DARK)
-        canv.setFont("Helvetica-Bold", 90)
-        canv.drawCentredString(cx - 0.45 * inch, cy, "50")
+        canv.setFont("Helvetica-Bold", 110)
+        canv.drawCentredString(cx_5, cy - 0.15 * inch, "5")
+        # The "0" — drawn as a thick gold ring (no number 0 character)
         canv.setStrokeColor(GOLD)
-        canv.setLineWidth(4)
-        canv.setFillColor(NAVY_DARK)
-        canv.circle(cx + 0.55 * inch, cy + 0.35 * inch, 0.55 * inch, stroke=1, fill=1)
+        canv.setLineWidth(8)
+        canv.setFillColor(NAVY)         # interior matches panel
+        canv.circle(cx_0, cy + 0.20 * inch, 0.62 * inch, stroke=1, fill=1)
+        # The "B" — gold, centered inside the circle
         canv.setFillColor(GOLD)
         canv.setFont("Helvetica-Bold", 56)
-        canv.drawCentredString(cx + 0.55 * inch, cy + 0.05 * inch, "B")
-        # Established + URL
+        canv.drawCentredString(cx_0, cy - 0.02 * inch, "B")
+        # Established + URL — positioned below the monogram with space
         canv.setFillColor(GOLD)
         canv.setFont("Helvetica-Bold", 10)
-        canv.drawCentredString(1.25 * inch, 3.5 * inch, "Established in 1976")
+        canv.drawCentredString(1.25 * inch, 3.30 * inch, "Established in 1976")
         canv.setFillColor(colors.white)
         canv.setFont("Helvetica", 9)
-        canv.drawCentredString(1.25 * inch, 3.25 * inch, "BECKERCAP.COM")
-        canv.drawCentredString(1.25 * inch, 3.07 * inch, "503.223.1720")
+        canv.drawCentredString(1.25 * inch, 3.05 * inch, "BECKERCAP.COM")
+        canv.drawCentredString(1.25 * inch, 2.87 * inch, "503.223.1720")
         canv.restoreState()
 
     def standard_decoration(canv, doc):
