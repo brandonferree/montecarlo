@@ -35,6 +35,8 @@ from app import (  # noqa: E402
     find_required_annual_savings,
     required_savings_at_confidence_levels,
     build_savings_goal_pdf,
+    # Charts (rendered inline on the page, identical to the PDF version)
+    chart_lifecycle_paths,
     # UI helpers (already brand-styled)
     dollar_input, _inject_becker_css, _render_header, _render_footer,
 )
@@ -455,6 +457,26 @@ def main():
                         "may be infeasible for this scenario — consider a "
                         "longer horizon, lower income, or higher equity."
                     )
+
+        # ----- Lifecycle chart (same renderer used in the PDF report) -----
+        # Visualizes the median portfolio path across both phases for each
+        # scenario at the required-savings level, with 20th–80th percentile
+        # bands shaded. Mirrors the path chart on the main Monte Carlo page.
+        st.subheader("Lifecycle Portfolio Path")
+        st.caption(
+            "Median portfolio value across the full lifecycle (accumulation "
+            "+ retirement) at the required-savings level, with 20th–80th "
+            "percentile bands shaded. The dotted vertical line for each "
+            "scenario marks the start of retirement."
+        )
+        goal_results_for_chart = [r["result"] for r in results]
+        try:
+            chart_buf = chart_lifecycle_paths(
+                goal_results_for_chart, snapshot["inflation"]
+            )
+            st.image(chart_buf, use_container_width=True)
+        except Exception as e:
+            st.error(f"Could not render lifecycle chart: {e}")
 
         # Sensitivity table
         st.subheader("Sensitivity — Required Savings by Confidence Level")
