@@ -466,6 +466,11 @@ def _setup_mpl():
         "axes.titlecolor": NAVY_HEX,
         "xtick.color": "#333333",
         "ytick.color": "#333333",
+        # Disable matplotlib's LaTeX-style math-mode parsing — without this,
+        # any text containing two $ signs (e.g., "Save $129K/yr × ... → $200K/yr")
+        # would have everything between them rendered as italic math text with
+        # the $ signs stripped. Affects legends, titles, tick labels.
+        "text.parse_math": False,
     })
 
 
@@ -1551,6 +1556,1042 @@ def build_pdf(results: List[dict], inputs: SimInputs,
         f"Monte Carlo simulation: {inputs.n_paths:,} paths per scenario | "
         "Past performance is not indicative of future results. This analysis is for illustrative "
         "purposes only and does not constitute investment advice."
+    )
+    story.append(Paragraph(assump, P_DISCLAIM))
+
+    doc.build(story)
+    return buf.getvalue()
+
+
+# =============================================================================
+# Savings Goal Calculator — inverse Monte Carlo
+# =============================================================================
+# This section implements the *inverse* of the distribution simulator:
+# instead of "given my savings, what outcomes can I expect?", it answers
+# "given the retirement income I want, how much do I need to save annually
+# to hit a target probability of success?"
+#
+# The methodology reuses the existing simulation engine (simulate_scenario)
+# inside a bisection loop over candidate annual savings amounts. "Success"
+# is defined as: the portfolio survives the entire retirement distribution
+# period (final balance > $0) — i.e., the goal is supported.
+# =============================================================================
+
+@dataclass
+class SavingsGoalScenario:
+    """
+    A single goal-planning scenario for the savings calculator.
+
+    All amounts are entered in today's (Year-1) dollars. The solver inflates
+    them forward at the inflation rate, identical to the distribution-phase
+    semantics in the main simulator.
+    """
+    name: str
+    years_to_retirement: int             # accumulation period
+    years_in_retirement: int             # distribution period
+    desired_annual_income: float         # in today's $, inflated forward
+    accumulation_eq_weight: float        # 0–1, equity weight while saving
+    retirement_eq_weight: float          # 0–1, equity weight in retirement
+                                         #   (set equal to accumulation for static)
+
+    @property
+    def total_horizon(self) -> int:
+        return self.years_to_retirement + self.years_in_retirement
+
+    @property
+    def has_glide_path(self) -> bool:
+        return abs(self.accumulation_eq_weight - self.retirement_eq_weight) > 1e-9
+
+
+def _build_scenario_from_goal(
+    goal: SavingsGoalScenario, annual_savings: float
+) -> Scenario:
+    """
+    Translate a SavingsGoalScenario + candidate annual savings into the
+    standard Scenario shape that simulate_scenario consumes.
+
+    This is the bridge between the two analyses: the savings calculator's
+    'years_to_retirement / years_in_retirement / income target' inputs
+    become the simulator's 'contribution_years / annual_contribution /
+    annual_distribution' inputs.
+    """
+    return Scenario(
+        name=goal.name,
+        eq_weight=goal.accumulation_eq_weight,
+        fi_weight=1.0 - goal.accumulation_eq_weight,
+        annual_distribution=goal.desired_annual_income,
+        contribution_years=goal.years_to_retirement,
+        annual_contribution=annual_savings,
+        # Glide path is engaged whenever the two weights differ.
+        retirement_eq_weight=(goal.retirement_eq_weight
+                              if goal.has_glide_path else None),
+        retirement_fi_weight=((1.0 - goal.retirement_eq_weight)
+                              if goal.has_glide_path else None),
+    )
+
+
+def simulate_goal_scenario(
+    goal: SavingsGoalScenario,
+    annual_savings: float,
+    initial_savings: float,
+    inflation: float,
+    return_assumptions: ReturnAssumptions,
+    n_paths: int = 5_000,
+    seed: int = 20260501,
+    seed_offset: int = 0,
+) -> dict:
+    """
+    Run a single Monte Carlo simulation for a (goal, savings) pair.
+
+    Returns the same dict shape as simulate_scenario, plus:
+      - "success_prob": fraction of paths where portfolio survived all
+                        retirement years (i.e., final balance > 0)
+      - "median_at_retirement": median portfolio balance at end of
+                                accumulation phase (start of retirement)
+      - "p20_at_retirement", "p80_at_retirement": same percentiles
+    """
+    s = _build_scenario_from_goal(goal, annual_savings)
+    inputs = SimInputs(
+        initial=initial_savings,
+        horizon_years=goal.total_horizon,
+        inflation=inflation,
+        distribution_frequency="Annual",  # annual cash flow for goal-planning
+        return_assumptions=return_assumptions,
+        scenarios=[s],
+        n_paths=n_paths,
+        seed=seed,
+    )
+    result = simulate_scenario(s, inputs, seed_offset=seed_offset)
+    # Augment with goal-specific stats
+    yr_at_retirement = result["balances"][:, goal.years_to_retirement]
+    result["success_prob"] = 1.0 - result["p_ruin"]
+    result["median_at_retirement"] = float(np.median(yr_at_retirement))
+    result["p20_at_retirement"] = float(np.percentile(yr_at_retirement, 20))
+    result["p80_at_retirement"] = float(np.percentile(yr_at_retirement, 80))
+    result["goal"] = goal
+    result["annual_savings"] = annual_savings
+    result["initial_savings"] = initial_savings
+    return result
+
+
+def find_required_annual_savings(
+    goal: SavingsGoalScenario,
+    initial_savings: float,
+    target_success_prob: float,
+    inflation: float,
+    return_assumptions: ReturnAssumptions,
+    n_paths: int = 5_000,
+    max_iters: int = 18,
+    rel_tol: float = 0.015,
+    seed: int = 20260501,
+) -> dict:
+    """
+    Bisect over the annual savings amount to find the MINIMUM amount such
+    that the Monte Carlo success probability >= target_success_prob.
+
+    Bisection is sound here because success is monotonically non-decreasing
+    in annual savings (more saved → more starting capital at retirement →
+    higher survival probability), modulo Monte Carlo noise. To control
+    that noise we use a fixed seed across iterations (same RNG state for
+    each candidate savings) so the function is deterministic.
+
+    Returns:
+        {
+          "required_savings": float,   # minimum that hits the target
+          "achieved_prob":    float,   # actual P(survival) at that level
+          "result":           dict,    # full simulate_goal_scenario output
+          "converged":        bool,
+          "iterations":       int,
+          # Diagnostic: every (savings, prob) pair tried during search.
+          "search_trace":     [(savings, prob), ...],
+        }
+
+    Edge cases:
+      - If $0/yr already meets target (e.g., huge initial savings): return 0.
+      - If even the upper bound doesn't meet target: return upper bound
+        with `converged=False` so the caller can warn the user.
+    """
+    # Deterministic noise control: same seed for every candidate savings
+    # makes prob() monotone non-decreasing in savings (sample-path-wise),
+    # which is what bisection needs.
+    def prob_at(savings: float) -> Tuple[float, dict]:
+        r = simulate_goal_scenario(
+            goal, savings, initial_savings, inflation,
+            return_assumptions, n_paths=n_paths, seed=seed, seed_offset=0,
+        )
+        return r["success_prob"], r
+
+    trace: List[Tuple[float, float]] = []
+
+    # Reasonable upper bound for bisection: enough to cover even pessimistic
+    # cases. 5x the desired income is a ~500% savings rate — should always
+    # be sufficient unless the time horizon is degenerate.
+    hi = max(5.0 * goal.desired_annual_income, 100_000.0)
+    lo = 0.0
+
+    # Edge case: $0 already works (typically if initial_savings is huge).
+    p0, r0 = prob_at(0.0)
+    trace.append((0.0, p0))
+    if p0 >= target_success_prob:
+        return {
+            "required_savings": 0.0,
+            "achieved_prob": p0,
+            "result": r0,
+            "converged": True,
+            "iterations": 0,
+            "search_trace": trace,
+        }
+
+    # Edge case: even the upper bound can't hit target. Likely means the
+    # time horizon is too short or the desired income is too aggressive
+    # relative to expected returns.
+    pmax, rmax = prob_at(hi)
+    trace.append((hi, pmax))
+    if pmax < target_success_prob:
+        return {
+            "required_savings": hi,
+            "achieved_prob": pmax,
+            "result": rmax,
+            "converged": False,
+            "iterations": 1,
+            "search_trace": trace,
+        }
+
+    # Bisection — narrow the bracket until it's tight (relative tol) or
+    # we hit the iteration cap.
+    best_meeting_result = rmax  # last result that met or exceeded target
+    best_meeting_savings = hi
+    best_meeting_prob = pmax
+
+    for it in range(max_iters):
+        mid = 0.5 * (lo + hi)
+        p_mid, r_mid = prob_at(mid)
+        trace.append((mid, p_mid))
+        if p_mid >= target_success_prob:
+            hi = mid
+            best_meeting_result = r_mid
+            best_meeting_savings = mid
+            best_meeting_prob = p_mid
+        else:
+            lo = mid
+        # Tight enough?
+        if hi > 0 and (hi - lo) / hi < rel_tol:
+            break
+
+    return {
+        "required_savings": best_meeting_savings,
+        "achieved_prob": best_meeting_prob,
+        "result": best_meeting_result,
+        "converged": True,
+        "iterations": len(trace) - 2,  # subtract the two boundary checks
+        "search_trace": trace,
+    }
+
+
+def required_savings_at_confidence_levels(
+    goal: SavingsGoalScenario,
+    initial_savings: float,
+    confidence_levels: List[float],
+    inflation: float,
+    return_assumptions: ReturnAssumptions,
+    n_paths: int = 5_000,
+    seed: int = 20260501,
+) -> List[dict]:
+    """
+    Run find_required_annual_savings at each requested confidence level.
+
+    Useful for the sensitivity table in the PDF: shows the user the
+    cost (in additional savings) of asking for a higher success probability.
+    Returns a list of result dicts, one per confidence level.
+    """
+    out = []
+    for cl in confidence_levels:
+        res = find_required_annual_savings(
+            goal=goal,
+            initial_savings=initial_savings,
+            target_success_prob=cl,
+            inflation=inflation,
+            return_assumptions=return_assumptions,
+            n_paths=n_paths,
+            seed=seed,
+        )
+        res["confidence_level"] = cl
+        out.append(res)
+    return out
+
+
+# =============================================================================
+# Savings-goal charts
+# =============================================================================
+def chart_lifecycle_paths(
+    goal_results: List[dict], inflation: float
+) -> io.BytesIO:
+    """
+    Median lifecycle path for each goal scenario, with a vertical line
+    marking the retirement year (transition from accumulation to
+    distribution). 20–80 percentile bands shaded.
+    """
+    _setup_mpl()
+    n = len(goal_results)
+    max_horizon = max(r["goal"].total_horizon for r in goal_results)
+
+    fig, ax = plt.subplots(figsize=(9.5, 5.0), dpi=180)
+
+    for r, color in zip(goal_results, SCENARIO_COLOR_HEX):
+        goal = r["goal"]
+        years_axis = np.arange(0, goal.total_horizon + 1)
+        ax.fill_between(years_axis, r["p20_path"] / 1e6, r["p80_path"] / 1e6,
+                        color=color, alpha=0.15, linewidth=0)
+        label = (f"{goal.name} — Save ${r['annual_savings']/1000:,.0f}K/yr × "
+                 f"{goal.years_to_retirement} yrs  →  "
+                 f"${goal.desired_annual_income/1000:,.0f}K/yr × "
+                 f"{goal.years_in_retirement} yrs")
+        ax.plot(years_axis, r["median_path"] / 1e6, color=color,
+                linewidth=2.4, label=label)
+        # Vertical line marking the retirement transition for this scenario,
+        # in the scenario's color but lighter.
+        ax.axvline(goal.years_to_retirement, color=color, linestyle=":",
+                   linewidth=1.2, alpha=0.55)
+
+    ax.set_title(
+        "Lifecycle Portfolio Value — Median & 20th–80th Percentile Bands\n"
+        "(Dotted vertical line = start of retirement / distributions)",
+        fontsize=12, pad=14,
+    )
+    ax.set_xlabel("Year")
+    ax.set_ylabel("Portfolio Value ($M)")
+    ax.set_xlim(0, max_horizon)
+
+    # Y-axis: scale by max p80 across scenarios
+    ceiling = max(np.max(r["p80_path"]) for r in goal_results) / 1e6
+    step = 20 if ceiling > 60 else 10 if ceiling > 30 else 5
+    ymax = int(np.ceil(ceiling / step) * step)
+    yticks = list(range(0, ymax + 1, step))
+    ax.set_yticks(yticks)
+    ax.set_yticklabels([f"${y}M" for y in yticks])
+    ax.set_ylim(0, ymax)
+    ax.grid(True, alpha=0.25, linestyle=":")
+    ax.set_axisbelow(True)
+    ax.legend(loc="upper left", frameon=True, framealpha=0.95, fontsize=8.5)
+    for spine in ["top", "right"]:
+        ax.spines[spine].set_visible(False)
+    plt.tight_layout()
+
+    buf = io.BytesIO()
+    plt.savefig(buf, format="png", dpi=180, bbox_inches="tight",
+                facecolor="white")
+    plt.close(fig)
+    buf.seek(0)
+    return buf
+
+
+def chart_required_savings_by_confidence(
+    sensitivity_results: List[List[dict]],
+    scenario_names: List[str],
+) -> io.BytesIO:
+    """
+    Bar chart: required annual savings on the y-axis, grouped by scenario,
+    with side-by-side bars for each confidence level.
+
+    sensitivity_results: list of (one per scenario) lists of result dicts
+                         (one per confidence level), as returned by
+                         required_savings_at_confidence_levels.
+    """
+    _setup_mpl()
+    n_scen = len(sensitivity_results)
+    confidence_levels = [r["confidence_level"] for r in sensitivity_results[0]]
+    n_lvl = len(confidence_levels)
+
+    fig, ax = plt.subplots(figsize=(9.5, 4.2), dpi=180)
+    bar_w = 0.8 / n_lvl
+    x_centers = np.arange(n_scen)
+    # Use a navy → teal → gold ramp for the confidence levels (low → high).
+    colors_ramp = [NAVY_HEX, TEAL_HEX, GOLD_HEX][:n_lvl]
+    if n_lvl > 3:
+        colors_ramp = (colors_ramp + ["#7BA8B8", "#A09480"])[:n_lvl]
+
+    for i, cl in enumerate(confidence_levels):
+        vals = [sens[i]["required_savings"] / 1000.0
+                for sens in sensitivity_results]
+        offsets = x_centers - 0.4 + bar_w * (i + 0.5)
+        bars = ax.bar(offsets, vals, bar_w, color=colors_ramp[i],
+                      edgecolor="white", linewidth=1.2,
+                      label=f"{int(cl*100)}% confidence")
+        # Value labels above each bar
+        for b, v in zip(bars, vals):
+            ax.text(b.get_x() + b.get_width() / 2, v + max(vals) * 0.02,
+                    f"${v:,.0f}K", ha="center", va="bottom",
+                    fontsize=8, color=TEXT_DARK_HEX)
+
+    ax.set_title(
+        "Required Annual Savings — by Scenario and Target Confidence",
+        fontsize=12, pad=12,
+    )
+    ax.set_ylabel("Required Annual Savings ($K, today's $)")
+    ax.set_xticks(x_centers)
+    ax.set_xticklabels(scenario_names)
+    ax.grid(True, alpha=0.25, linestyle=":", axis="y")
+    ax.set_axisbelow(True)
+    ax.legend(loc="upper left", frameon=True, framealpha=0.95, fontsize=9)
+    # Headroom for value labels
+    cur_top = ax.get_ylim()[1]
+    ax.set_ylim(0, cur_top * 1.15)
+    for spine in ["top", "right"]:
+        ax.spines[spine].set_visible(False)
+    plt.tight_layout()
+
+    buf = io.BytesIO()
+    plt.savefig(buf, format="png", dpi=180, bbox_inches="tight",
+                facecolor="white")
+    plt.close(fig)
+    buf.seek(0)
+    return buf
+
+
+def chart_portfolio_at_retirement_distributions(
+    goal_results: List[dict],
+) -> io.BytesIO:
+    """
+    Histograms of portfolio value at the END OF ACCUMULATION (start of
+    retirement) for each scenario. Shows the size of the nest egg the
+    required savings produces.
+    """
+    _setup_mpl()
+    n = len(goal_results)
+    fig, axes = plt.subplots(1, n, figsize=(11, 3.6), dpi=180)
+    if n == 1:
+        axes = [axes]
+
+    # Pull "balance at retirement year" for each scenario
+    nest_eggs = []
+    for r in goal_results:
+        goal = r["goal"]
+        nest_eggs.append(r["balances"][:, goal.years_to_retirement] / 1e6)
+
+    xmax_global = max(np.percentile(ne, 99) for ne in nest_eggs)
+    xmax_global = min(xmax_global, 100)  # cap for readability
+
+    for ax, r, ne, color in zip(axes, goal_results, nest_eggs,
+                                SCENARIO_COLOR_HEX):
+        median_m = float(np.median(ne))
+        ax.hist(ne, bins=60, range=(0, xmax_global), color=color, alpha=0.85,
+                edgecolor="white", linewidth=0.4)
+        ax.axvline(median_m, color="#C0392B", linestyle="--", linewidth=1.6,
+                   label=f"Median: ${median_m:.1f}M")
+        goal = r["goal"]
+        ax.set_title(f"{goal.name}\nat Yr {goal.years_to_retirement} (retirement)",
+                     fontsize=10)
+        ax.set_xlabel("Portfolio Value ($M)", fontsize=9)
+        if ax is axes[0]:
+            ax.set_ylabel("Frequency", fontsize=9)
+        ax.legend(loc="upper right", fontsize=8, frameon=False)
+        ax.grid(True, alpha=0.25, linestyle=":", axis="y")
+        ax.set_axisbelow(True)
+        for spine in ["top", "right"]:
+            ax.spines[spine].set_visible(False)
+
+    fig.suptitle(
+        "Portfolio Value at Retirement — Monte Carlo Distribution",
+        fontsize=12, color=NAVY_HEX, fontweight="bold", y=1.04,
+    )
+    plt.tight_layout()
+
+    buf = io.BytesIO()
+    plt.savefig(buf, format="png", dpi=180, bbox_inches="tight",
+                facecolor="white")
+    plt.close(fig)
+    buf.seek(0)
+    return buf
+
+
+# =============================================================================
+# Savings-goal PDF builder
+# =============================================================================
+def build_savings_goal_pdf(
+    goal_results: List[dict],
+    sensitivity_results: List[List[dict]],
+    initial_savings: float,
+    target_success_prob: float,
+    inflation: float,
+    return_assumptions: ReturnAssumptions,
+    n_paths: int,
+    confidence_levels: List[float],
+    prep_date: str | None = None,
+) -> bytes:
+    """
+    Build the Becker-styled Savings Goal PDF in memory and return bytes.
+
+    Mirrors the structure of build_pdf (cover / disclaimer / exec summary /
+    return assumptions / lifecycle chart + summary / nest-egg distribution /
+    sensitivity / key findings).
+    """
+    if prep_date is None:
+        prep_date = datetime.now().strftime("%B %d, %Y")
+    footer_date = "December 31, 2025"
+
+    PAGE_W, PAGE_H = LETTER
+    buf = io.BytesIO()
+
+    # Charts
+    img_paths_buf = chart_lifecycle_paths(goal_results, inflation)
+    img_nest_buf = chart_portfolio_at_retirement_distributions(goal_results)
+    scen_names = [r["goal"].name for r in goal_results]
+    img_sens_buf = chart_required_savings_by_confidence(
+        sensitivity_results, scen_names
+    )
+
+    # ----- Styles -----
+    H_TITLE = ParagraphStyle("Title", fontName="Helvetica-Bold", fontSize=26,
+                             leading=30, textColor=NAVY, alignment=TA_LEFT,
+                             spaceAfter=6)
+    H_TAGLINE = ParagraphStyle("Tagline", fontName="Helvetica-Bold", fontSize=10,
+                               leading=14, textColor=GOLD, alignment=TA_LEFT,
+                               spaceAfter=10)
+    H_SECTION = ParagraphStyle("Section", fontName="Helvetica-Bold", fontSize=14,
+                               leading=18, textColor=NAVY, alignment=TA_LEFT,
+                               spaceBefore=10, spaceAfter=6)
+    P_KICKER = ParagraphStyle("Kicker", fontName="Helvetica-Bold", fontSize=8.5,
+                              leading=11, textColor=GOLD, alignment=TA_LEFT,
+                              spaceAfter=4)
+    P_BODY = ParagraphStyle("Body", fontName="Helvetica", fontSize=9.5, leading=13.5,
+                            textColor=TEXT_DARK, alignment=TA_JUSTIFY, spaceAfter=6)
+    P_FIGCAP = ParagraphStyle("FigCap", fontName="Helvetica-Oblique", fontSize=8.5,
+                              leading=11, textColor=TEXT_MED, alignment=TA_LEFT,
+                              spaceAfter=8)
+    P_DISCLAIM = ParagraphStyle("Disclaim", fontName="Helvetica", fontSize=8.5,
+                                leading=12, textColor=TEXT_DARK, alignment=TA_JUSTIFY,
+                                spaceAfter=6)
+    P_KEY_LABEL = ParagraphStyle("KeyLabel", fontName="Helvetica", fontSize=8,
+                                 leading=10, textColor=TEXT_MED, alignment=TA_LEFT)
+    P_COVER_FIELD_LABEL = ParagraphStyle("CovLabel", fontName="Helvetica", fontSize=8.5,
+                                         leading=10, textColor=TEXT_MED, alignment=TA_LEFT)
+    P_COVER_FIELD_VAL = ParagraphStyle("CovVal", fontName="Helvetica-Bold", fontSize=15,
+                                       leading=17, textColor=NAVY, alignment=TA_LEFT)
+
+    # ----- Page decorations (identical to build_pdf — kept inline for simplicity) -----
+    def cover_decoration(canv, doc):
+        canv.saveState()
+        canv.setFillColor(NAVY)
+        canv.rect(0, 0, 2.5 * inch, PAGE_H, stroke=0, fill=1)
+        canv.setFillColor(GOLD)
+        canv.rect(0, 0, PAGE_W, 0.35 * inch, stroke=0, fill=1)
+        canv.setFillColor(NAVY_DARK)
+        canv.setFont("Helvetica-Bold", 9)
+        canv.drawString(0.4 * inch, 0.13 * inch, "BECKER CAPITAL MANAGEMENT")
+        canv.setFillColor(colors.white)
+        canv.setFont("Helvetica-Oblique", 7.5)
+        canv.drawRightString(
+            PAGE_W - 0.4 * inch, 0.13 * inch,
+            "This report is hypothetical and for illustrative purposes only. Not investment advice.",
+        )
+        cx_5 = 0.85 * inch
+        cx_0 = 1.75 * inch
+        cy = 4.7 * inch
+        canv.setFillColor(NAVY_DARK)
+        canv.setFont("Helvetica-Bold", 110)
+        canv.drawCentredString(cx_5, cy - 0.15 * inch, "5")
+        canv.setStrokeColor(GOLD)
+        canv.setLineWidth(8)
+        canv.setFillColor(NAVY)
+        canv.circle(cx_0, cy + 0.20 * inch, 0.62 * inch, stroke=1, fill=1)
+        canv.setFillColor(GOLD)
+        canv.setFont("Helvetica-Bold", 56)
+        canv.drawCentredString(cx_0, cy - 0.02 * inch, "B")
+        canv.setFillColor(GOLD)
+        canv.setFont("Helvetica-Bold", 10)
+        canv.drawCentredString(1.25 * inch, 3.30 * inch, "Established in 1976")
+        canv.setFillColor(colors.white)
+        canv.setFont("Helvetica", 9)
+        canv.drawCentredString(1.25 * inch, 3.05 * inch, "BECKERCAP.COM")
+        canv.drawCentredString(1.25 * inch, 2.87 * inch, "503.223.1720")
+        canv.restoreState()
+
+    def standard_decoration(canv, doc):
+        canv.saveState()
+        canv.setStrokeColor(RULE_GREY)
+        canv.setLineWidth(0.5)
+        canv.line(0.6 * inch, 0.65 * inch, PAGE_W - 0.6 * inch, 0.65 * inch)
+        canv.setFillColor(TEXT_MED)
+        canv.setFont("Helvetica", 8)
+        canv.drawString(0.6 * inch, 0.45 * inch,
+                        "Becker Capital Management | BECKERCAP.COM | 503.223.1720")
+        canv.drawRightString(PAGE_W - 0.6 * inch, 0.45 * inch,
+                             f"{footer_date}  |  Pg. {doc.page - 1}")
+        canv.restoreState()
+
+    doc = BaseDocTemplate(
+        buf, pagesize=LETTER,
+        leftMargin=0.6 * inch, rightMargin=0.6 * inch,
+        topMargin=0.55 * inch, bottomMargin=0.85 * inch,
+        title="Savings Goal Calculator — Becker Capital Management",
+        author="Becker Capital Management",
+    )
+    cover_frame = Frame(2.9 * inch, 0.85 * inch,
+                        PAGE_W - 2.9 * inch - 0.6 * inch,
+                        PAGE_H - 0.85 * inch - 0.6 * inch,
+                        leftPadding=0, rightPadding=0,
+                        topPadding=0, bottomPadding=0, id="cover")
+    content_frame = Frame(0.6 * inch, 0.85 * inch,
+                          PAGE_W - 1.2 * inch, PAGE_H - 0.85 * inch - 0.55 * inch,
+                          leftPadding=0, rightPadding=0,
+                          topPadding=0, bottomPadding=0, id="content")
+    doc.addPageTemplates([
+        PageTemplate(id="cover", frames=[cover_frame], onPage=cover_decoration),
+        PageTemplate(id="content", frames=[content_frame], onPage=standard_decoration),
+    ])
+
+    def section_header(text):
+        rule = Table([[""]], colWidths=[PAGE_W - 1.2 * inch], rowHeights=[2])
+        rule.setStyle(TableStyle([("LINEBELOW", (0, 0), (-1, -1), 1.5, GOLD),
+                                  ("TOPPADDING", (0, 0), (-1, -1), 0),
+                                  ("BOTTOMPADDING", (0, 0), (-1, -1), 0)]))
+        return [Paragraph(text, H_SECTION), rule, Spacer(1, 6)]
+
+    story = []
+
+    # ==================== COVER ====================
+    n_scen = len(goal_results)
+    incomes = sorted(set(r["goal"].desired_annual_income for r in goal_results))
+    yrs_to_ret = sorted(set(r["goal"].years_to_retirement for r in goal_results))
+    yrs_in_ret = sorted(set(r["goal"].years_in_retirement for r in goal_results))
+
+    if len(incomes) == 1:
+        income_str = f"${incomes[0]:,.0f} / yr"
+    else:
+        income_str = (f"${min(incomes)/1000:,.0f}K – "
+                      f"${max(incomes)/1000:,.0f}K / yr")
+
+    if len(yrs_to_ret) == 1:
+        yrs_to_ret_str = f"{yrs_to_ret[0]} years"
+    else:
+        yrs_to_ret_str = f"{min(yrs_to_ret)} – {max(yrs_to_ret)} years"
+
+    if len(yrs_in_ret) == 1:
+        yrs_in_ret_str = f"{yrs_in_ret[0]} years"
+    else:
+        yrs_in_ret_str = f"{min(yrs_in_ret)} – {max(yrs_in_ret)} years"
+
+    def _alloc_str_goal(g: SavingsGoalScenario) -> str:
+        # Use round() not int() — int(0.20*100) == 19 due to FP representation.
+        eq_a = round(g.accumulation_eq_weight * 100)
+        base = f"{eq_a}/{100 - eq_a}"
+        if g.has_glide_path:
+            eq_r = round(g.retirement_eq_weight * 100)
+            return f"{base}→{eq_r}/{100 - eq_r}"
+        return base
+
+    # Collapse the allocation string when all scenarios share the same alloc.
+    # Otherwise the fact strip and cover field overflow with redundant content
+    # like "80/20→60/40 • 80/20→60/40 • 80/20→60/40".
+    individual_alloc_strs = [_alloc_str_goal(r["goal"]) for r in goal_results]
+    if len(set(individual_alloc_strs)) == 1:
+        alloc_strs = individual_alloc_strs[0]
+    else:
+        alloc_strs = " • ".join(individual_alloc_strs)
+    any_glide = any(r["goal"].has_glide_path for r in goal_results)
+
+    story.append(Spacer(1, 0.3 * inch))
+    story.append(Paragraph(
+        f"SAVINGS GOAL CALCULATOR  •  "
+        f"{n_scen} SCENARIO{'S' if n_scen > 1 else ''}  •  "
+        f"{int(target_success_prob*100)}% TARGET CONFIDENCE",
+        H_TAGLINE,
+    ))
+    story.append(Paragraph("Required Annual<br/>Savings Analysis", H_TITLE))
+    underline = Table([[""]], colWidths=[3.5 * inch], rowHeights=[3])
+    underline.setStyle(TableStyle([("LINEBELOW", (0, 0), (-1, -1), 2, GOLD)]))
+    story.append(underline)
+    story.append(Spacer(1, 0.25 * inch))
+
+    def cover_field(value, label):
+        t = Table([[Paragraph(value, P_COVER_FIELD_VAL)],
+                   [Paragraph(label, P_COVER_FIELD_LABEL)]],
+                  colWidths=[4.5 * inch])
+        t.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, -1), LIGHT_BG),
+            ("LINEBEFORE", (0, 0), (0, -1), 3, GOLD),
+            ("LEFTPADDING", (0, 0), (-1, -1), 14),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+            ("TOPPADDING", (0, 0), (0, 0), 8),
+            ("BOTTOMPADDING", (0, 0), (0, 0), 0),
+            ("TOPPADDING", (0, 1), (0, 1), 0),
+            ("BOTTOMPADDING", (0, 1), (0, 1), 8),
+        ]))
+        return t
+
+    cover_fields = [
+        (f"${initial_savings:,.0f}", "Current Savings (today's $)"),
+        (income_str, "Desired Retirement Income (today's $, escalates with inflation)"),
+        (yrs_to_ret_str, "Years to Retirement (accumulation)"),
+        (yrs_in_ret_str, "Years in Retirement (distribution)"),
+        (alloc_strs, f"Equity / Fixed Income ({n_scen} Scenario"
+                     f"{'s' if n_scen > 1 else ''})"),
+        (f"{int(target_success_prob*100)}%",
+         "Target Success Probability (portfolio survives all retirement years)"),
+        (f"{inflation*100:.2f}%", "Inflation Rate"),
+    ]
+    for v, l in cover_fields:
+        story.append(cover_field(v, l))
+        story.append(Spacer(1, 6))
+
+    story.append(Spacer(1, 0.25 * inch))
+    prep_table = Table(
+        [[Paragraph("<b>Prepared by:</b> Becker Capital Management", P_KEY_LABEL)],
+         [Paragraph(f"<b>Date:</b> {prep_date}", P_KEY_LABEL)]],
+        colWidths=[4.5 * inch],
+    )
+    prep_table.setStyle(TableStyle([("LEFTPADDING", (0, 0), (-1, -1), 0),
+                                    ("BOTTOMPADDING", (0, 0), (-1, -1), 2)]))
+    story.append(prep_table)
+    story.append(NextPageTemplate("content"))
+    story.append(PageBreak())
+
+    # ==================== DISCLAIMER ====================
+    story.extend(section_header("Disclaimer"))
+    disclaim = [
+        "The following report is a diagnostic tool intended to review the inputs provided "
+        "and illustrate potential savings concepts that may be of benefit. The purpose of "
+        "the report is to illustrate how accepted financial and investment planning principles "
+        "may apply to the assumptions provided.",
+        "This report estimates the annual savings amount required to support a desired "
+        "retirement income stream with a chosen probability of success, based on Monte Carlo "
+        "simulation. Required savings are computed via bisection search: candidate savings "
+        "amounts are evaluated by simulating the full lifecycle (accumulation + retirement) "
+        "and measuring the fraction of paths in which the portfolio survives the entire "
+        "distribution phase. The reported figure is the minimum annual savings amount whose "
+        "success probability meets or exceeds the target.",
+        "This report is based upon assumptions provided for illustrative purposes only. It "
+        "does not constitute a recommendation of any particular technique or investment "
+        "strategy. We recommend that you review your plan annually, or when circumstances "
+        "change.",
+        "Past performance is no guarantee of future performance. Actual results may differ "
+        "from the projections contained in this report. The presentation of investment returns "
+        "does not reflect the deduction of any commissions or advisory fees. Deduction of such "
+        "charges will result in a lower required savings figure being insufficient.",
+        f"Monte Carlo Analysis is a mathematical process used to implement complex statistical "
+        f"methods that chart the probability of certain financial outcomes at certain times in "
+        f"the future. This charting is accomplished by generating {n_paths:,} possible "
+        f"economic scenarios. " + (
+            f"Each scenario draws annual return data via <b>matched-pair bootstrap "
+            f"resampling</b> from {return_assumptions.historical_period} historical "
+            f"S&amp;P 500 and 10-Year Treasury total returns, re-centered so the long-run "
+            f"mean equals the forward-looking expected return."
+            if return_assumptions.method == "bootstrap"
+            else f"Each scenario randomly draws return data from a normal distribution based "
+                 f"on the means and standard deviations specified in the assumption set "
+                 f"({return_assumptions.label})."
+        ),
+        "<b>IMPORTANT:</b> The required savings figures generated by this Monte Carlo "
+        "simulation are hypothetical in nature, do not reflect actual investment results, and "
+        "are not guarantees of future results. Results may vary with each use and over time. "
+        "This report is prepared by Becker Capital Management for informational purposes only.",
+    ]
+    for p in disclaim:
+        story.append(Paragraph(p, P_DISCLAIM))
+    story.append(PageBreak())
+
+    # ==================== EXEC SUMMARY ====================
+    story.append(Paragraph("Required Savings Analysis", H_SECTION))
+    story.append(Paragraph(
+        f"{n_scen} Goal-Planning Scenario{'s' if n_scen > 1 else ''} — "
+        f"{int(target_success_prob*100)}% Target Success Probability",
+        P_KICKER,
+    ))
+
+    # Top fact strip — wrap each value cell in a Paragraph so long
+    # multi-scenario allocation strings ("60/40 • 80/20→60/40 • 80/20")
+    # word-wrap onto two lines rather than overflowing into adjacent cells.
+    P_FACT_VAL = ParagraphStyle(
+        "FactVal", fontName="Helvetica-Bold", fontSize=10, leading=12,
+        textColor=NAVY, alignment=1,  # 1 = TA_CENTER
+    )
+    P_FACT_LBL = ParagraphStyle(
+        "FactLbl", fontName="Helvetica", fontSize=7.5, leading=9,
+        textColor=TEXT_MED, alignment=1,
+    )
+    fact_data = [
+        [Paragraph(f"${initial_savings/1e6:.2f}M", P_FACT_VAL),
+         Paragraph(alloc_strs, P_FACT_VAL),
+         Paragraph(income_str, P_FACT_VAL),
+         Paragraph(yrs_to_ret_str, P_FACT_VAL),
+         Paragraph(yrs_in_ret_str, P_FACT_VAL),
+         Paragraph(f"{int(target_success_prob*100)}%", P_FACT_VAL)],
+        [Paragraph("Current Savings", P_FACT_LBL),
+         Paragraph("Equity / Fixed Income", P_FACT_LBL),
+         Paragraph("Income Target", P_FACT_LBL),
+         Paragraph("Yrs to Retirement", P_FACT_LBL),
+         Paragraph("Yrs in Retirement", P_FACT_LBL),
+         Paragraph("Target Success", P_FACT_LBL)],
+    ]
+    # When ANY scenario has a glide path AND scenarios differ, the equity
+    # column needs the most room; otherwise equal-width columns work fine.
+    if any_glide and len(set(individual_alloc_strs)) > 1:
+        fact_widths = [0.95 * inch, 2.30 * inch, 1.10 * inch,
+                       1.05 * inch, 1.05 * inch, 0.85 * inch]
+    else:
+        fact_widths = [1.15 * inch] * 6
+    fact_tbl = Table(fact_data, colWidths=fact_widths)
+    fact_tbl.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), LIGHT_BG),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, 0), 8),
+        ("BOTTOMPADDING", (0, 0), (-1, 0), 4),
+        ("TOPPADDING", (0, 1), (-1, 1), 0),
+        ("BOTTOMPADDING", (0, 1), (-1, 1), 8),
+        ("LINEABOVE", (0, 0), (-1, 0), 0.5, RULE_GREY),
+        ("LINEBELOW", (0, 1), (-1, 1), 0.5, RULE_GREY),
+    ]))
+    story.append(fact_tbl)
+    story.append(Spacer(1, 12))
+
+    story.extend(section_header("Executive Summary"))
+
+    # Build the per-scenario savings descriptor
+    scen_descs = ", ".join(
+        f"<b>{r['goal'].name}</b> (save ${r['annual_savings']:,.0f}/yr "
+        f"× {r['goal'].years_to_retirement} yrs)"
+        for r in goal_results
+    )
+    glide_text = ""
+    if any_glide:
+        glide_text = (
+            "<br/><br/><b>Glide path:</b> One or more scenarios use a glide-path allocation "
+            "that shifts from a more aggressive accumulation-phase mix to a more "
+            "conservative retirement-phase mix at the start of distributions, reflecting "
+            "the common practice of de-risking around retirement to reduce sequence-of-"
+            "returns risk."
+        )
+    ra = return_assumptions
+    if ra.method == "bootstrap":
+        method_text = (
+            f"Expected returns are <b>forward-looking</b> "
+            f"(equity {ra.eq_mu*100:.2f}%, fixed income {ra.fi_mu*100:.2f}%), but the "
+            f"<b>volatility, fat tails, skew, and equity/fixed-income correlation are "
+            f"derived from actual historical experience</b> over {ra.historical_period} "
+            f"({HIST_STATS['n_years']} years of S&amp;P 500 and 10-Year Treasury total returns) "
+            f"via matched-pair bootstrap resampling, re-centered so the long-run mean "
+            f"equals the forward-looking assumption."
+        )
+    else:
+        method_text = (
+            f"Expected returns and volatility are derived from the "
+            f"<b>{ra.label}</b> assumption set: equity mean {ra.eq_mu*100:.2f}% "
+            f"(σ = {ra.eq_sigma*100:.2f}%), fixed income mean {ra.fi_mu*100:.2f}% "
+            f"(σ = {ra.fi_sigma*100:.2f}%). Per-period returns are drawn independently "
+            f"from a normal distribution parameterized to those annual figures."
+        )
+
+    exec_text = (
+        f"This report calculates the <b>minimum annual savings</b> required to support a "
+        f"desired retirement income stream with a target success probability of "
+        f"<b>{int(target_success_prob*100)}%</b>, evaluated across {n_scen} planning "
+        f"scenario{'s' if n_scen > 1 else ''}: {scen_descs}. "
+        f"<b>Success</b> is defined as the portfolio surviving the entire retirement "
+        f"distribution phase (final balance &gt; $0) — i.e., the income goal is "
+        f"supported throughout retirement. "
+        f"All amounts are entered in today's (Year-1) dollars and inflated forward at "
+        f"{inflation*100:.1f}% annually to preserve real purchasing power."
+        f"{glide_text}"
+        f"<br/><br/>"
+        f"{method_text} "
+        f"For each scenario, the simulator runs {n_paths:,} independent paths and a "
+        f"bisection search identifies the minimum annual savings amount whose success "
+        f"probability meets or exceeds the target. Results at additional confidence "
+        f"levels are also reported as a sensitivity analysis."
+    )
+    story.append(Paragraph(exec_text, P_BODY))
+
+    # ==================== HEADLINE RESULT TABLE ====================
+    story.extend(section_header("Required Annual Savings — Headline Result"))
+    headline_rows = [
+        ["Scenario"] + [r["goal"].name for r in goal_results],
+        ["Years to Retirement"]
+        + [f"{r['goal'].years_to_retirement} yrs" for r in goal_results],
+        ["Years in Retirement"]
+        + [f"{r['goal'].years_in_retirement} yrs" for r in goal_results],
+        ["Desired Annual Income (today's $)"]
+        + [f"${r['goal'].desired_annual_income:,.0f}" for r in goal_results],
+        ["Allocation"]
+        + [_alloc_str_goal(r["goal"]) for r in goal_results],
+        [f"<b>Required Annual Savings</b><br/>"
+         f"<font size='8' color='#5A5A5A'>(to hit "
+         f"{int(target_success_prob*100)}% target)</font>"]
+        + [f"<b><font color='#1F3A5F' size='13'>"
+           f"${r['annual_savings']:,.0f}</font></b>" for r in goal_results],
+        ["Achieved Success Probability"]
+        + [f"{r['success_prob']*100:.1f}%" for r in goal_results],
+        ["Median Portfolio at Retirement"]
+        + [fmt_m(r["median_at_retirement"]) for r in goal_results],
+        ["20th Pct at Retirement"]
+        + [fmt_m(r["p20_at_retirement"]) for r in goal_results],
+        ["80th Pct at Retirement"]
+        + [fmt_m(r["p80_at_retirement"]) for r in goal_results],
+    ]
+    # Wrap each cell in Paragraph so HTML formatting renders
+    headline_data = [[Paragraph(str(c), P_KEY_LABEL) if isinstance(c, str) else c
+                      for c in row] for row in headline_rows]
+    metric_w = 2.2 * inch
+    scen_w = (PAGE_W - 1.2 * inch - metric_w) / max(n_scen, 1)
+    headline_tbl = Table(headline_data, colWidths=[metric_w] + [scen_w] * n_scen)
+    headline_tbl.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), NAVY),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONT", (0, 0), (-1, 0), "Helvetica-Bold", 9),
+        ("ALIGN", (0, 0), (-1, 0), "CENTER"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("ALIGN", (1, 1), (-1, -1), "CENTER"),
+        ("ALIGN", (0, 1), (0, -1), "LEFT"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, ALT_BG]),
+        ("BOX", (0, 0), (-1, -1), 0.5, RULE_GREY),
+        ("INNERGRID", (0, 1), (-1, -1), 0.25, RULE_GREY),
+    ]))
+    story.append(headline_tbl)
+    story.append(PageBreak())
+
+    # ==================== LIFECYCLE CHART ====================
+    story.extend(section_header("Lifecycle Portfolio Path"))
+    story.append(Paragraph(
+        f"At the required savings level for each scenario, the chart below shows the "
+        f"<b>median portfolio path</b> with 20th–80th percentile bands across "
+        f"{n_paths:,} Monte Carlo simulations. The dotted vertical line for each scenario "
+        f"marks the start of retirement — the point at which contributions stop and "
+        f"distributions begin.",
+        P_BODY,
+    ))
+    story.append(Image(img_paths_buf, width=7.0 * inch, height=3.7 * inch))
+    story.append(Paragraph(
+        "Figure 1 — Median lifecycle portfolio value with 20th–80th percentile bands.",
+        P_FIGCAP,
+    ))
+    story.append(PageBreak())
+
+    # ==================== NEST EGG DISTRIBUTION ====================
+    story.extend(section_header("Portfolio Value at Retirement"))
+    story.append(Paragraph(
+        "The histograms below show the distribution of portfolio values at the start "
+        "of retirement (end of accumulation) for each scenario, given the required "
+        "annual savings. This is the 'nest egg' from which retirement distributions "
+        "will be drawn.",
+        P_BODY,
+    ))
+    story.append(Image(img_nest_buf, width=7.0 * inch, height=2.4 * inch))
+    story.append(Paragraph(
+        "Figure 2 — Portfolio value at retirement, Monte Carlo distributions.",
+        P_FIGCAP,
+    ))
+
+    # ==================== SENSITIVITY ====================
+    story.extend(section_header("Sensitivity to Target Confidence Level"))
+    story.append(Paragraph(
+        f"The required savings figure depends on how confident you want to be that the "
+        f"portfolio survives the full retirement period. The chart and table below show "
+        f"how the required annual savings amount changes as the target confidence level "
+        f"shifts. Higher confidence demands more savings — there is a real cost to "
+        f"reducing the chance of failure.",
+        P_BODY,
+    ))
+    story.append(Image(img_sens_buf, width=7.0 * inch, height=3.0 * inch))
+    story.append(Paragraph(
+        "Figure 3 — Required annual savings at multiple target confidence levels.",
+        P_FIGCAP,
+    ))
+
+    # Sensitivity table — rows = confidence levels, cols = scenarios
+    sens_header = ["Target Confidence"] + [r["goal"].name for r in goal_results]
+    sens_rows = [sens_header]
+    for i, cl in enumerate(confidence_levels):
+        row = [f"{int(cl*100)}%"]
+        for sens in sensitivity_results:
+            res = sens[i]
+            note = "" if res["converged"] else " (capped)"
+            row.append(f"${res['required_savings']:,.0f}/yr{note}")
+        sens_rows.append(row)
+    sens_tbl = Table(sens_rows,
+                     colWidths=[2.2 * inch] + [scen_w] * n_scen)
+    sens_tbl.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), NAVY),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONT", (0, 0), (-1, 0), "Helvetica-Bold", 9),
+        ("ALIGN", (0, 0), (-1, 0), "CENTER"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("FONT", (0, 1), (0, -1), "Helvetica-Bold", 8.5),
+        ("FONT", (1, 1), (-1, -1), "Helvetica", 8.5),
+        ("ALIGN", (1, 1), (-1, -1), "CENTER"),
+        ("ALIGN", (0, 1), (0, -1), "LEFT"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, ALT_BG]),
+        ("BOX", (0, 0), (-1, -1), 0.5, RULE_GREY),
+        ("INNERGRID", (0, 1), (-1, -1), 0.25, RULE_GREY),
+    ]))
+    story.append(sens_tbl)
+    story.append(PageBreak())
+
+    # ==================== KEY FINDINGS ====================
+    story.extend(section_header("Key Findings"))
+    for r in goal_results:
+        g = r["goal"]
+        eq_a = round(g.accumulation_eq_weight * 100)
+        if g.has_glide_path:
+            eq_r = round(g.retirement_eq_weight * 100)
+            alloc_phrase = (
+                f"{eq_a}/{100 - eq_a} during accumulation, glide to "
+                f"{eq_r}/{100 - eq_r} in retirement"
+            )
+        else:
+            alloc_phrase = f"static {eq_a}/{100 - eq_a} throughout"
+        finding = (
+            f"<b>{g.name}:</b> "
+            f"To support ${g.desired_annual_income:,.0f}/yr (today's $) of retirement "
+            f"income for {g.years_in_retirement} years with "
+            f"<b>{int(target_success_prob*100)}% confidence</b>, the required annual "
+            f"savings is <b>${r['annual_savings']:,.0f}</b> for each of the "
+            f"{g.years_to_retirement} years prior to retirement. "
+            f"At this savings level, the median portfolio value at retirement is "
+            f"<b>{fmt_m(r['median_at_retirement'])}</b> "
+            f"(20th–80th percentile range: {fmt_m(r['p20_at_retirement'])} to "
+            f"{fmt_m(r['p80_at_retirement'])}). "
+            f"Allocation: {alloc_phrase}. "
+            f"Achieved success probability: {r['success_prob']*100:.1f}%."
+        )
+        story.append(Paragraph(finding, P_BODY))
+
+    story.append(Spacer(1, 8))
+    if ra.method == "bootstrap":
+        ret_text = (
+            f"Equity forward-looking μ = {ra.eq_mu*100:.2f}%, "
+            f"fixed income μ = {ra.fi_mu*100:.2f}%; historical σ and eq/FI correlation "
+            f"preserved from {ra.historical_period} ({HIST_STATS['n_years']}-year "
+            f"matched-pair bootstrap, re-centered) | "
+        )
+    else:
+        ret_text = (
+            f"Equity expected return {ra.eq_mu*100:.2f}% (σ = {ra.eq_sigma*100:.2f}%); "
+            f"fixed income expected return {ra.fi_mu*100:.2f}% "
+            f"(σ = {ra.fi_sigma*100:.2f}%); source: {ra.label} | "
+        )
+
+    assump = (
+        f"<b>Key Assumptions &amp; Disclosures:</b> Current savings ${initial_savings:,.0f} | "
+        f"Income and savings amounts are entered in today's (Year-1) dollars and inflated "
+        f"forward at the inflation rate to preserve real purchasing power | "
+        f"Annual cash-flow frequency | Annual escalation: {inflation*100:.1f}% | "
+        f"Target success probability: {int(target_success_prob*100)}% (P[portfolio "
+        f"survives all retirement years] ≥ target) | "
+        f"{ret_text}"
+        f"Required savings determined via bisection search "
+        f"(15–18 iterations, relative tolerance ~1.5%) | "
+        f"No tax drag, advisory fees, or rebalancing costs modeled | "
+        f"Monte Carlo simulation: {n_paths:,} paths per candidate savings level | "
+        f"Past performance is not indicative of future results. This analysis is for "
+        f"illustrative purposes only and does not constitute investment advice."
     )
     story.append(Paragraph(assump, P_DISCLAIM))
 
