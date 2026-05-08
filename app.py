@@ -151,16 +151,39 @@ class ReturnAssumptions:
 @dataclass
 class Scenario:
     name: str
-    eq_weight: float                      # 0–1
-    fi_weight: float                      # 0–1
+    eq_weight: float                      # 0–1, accumulation-phase equity weight
+    fi_weight: float                      # 0–1, accumulation-phase fixed-income weight
     annual_distribution: float            # in today's (Year-1) dollars
     contribution_years: int = 0           # number of years to contribute (0 = none)
     annual_contribution: float = 0.0      # in today's (Year-1) dollars
+    # ----- Glide path (optional) -----
+    # If set, the portfolio rebalances ONCE at the start of the distribution phase
+    # to the retirement allocation. If left None, the same eq/fi weights apply
+    # throughout (i.e., a static allocation).
+    retirement_eq_weight: Optional[float] = None    # 0–1, post-rebalance equity
+    retirement_fi_weight: Optional[float] = None    # 0–1, post-rebalance FI
 
     @property
     def distribution_start_year(self) -> int:
         """The first year in which a distribution is paid (1-indexed)."""
         return self.contribution_years + 1
+
+    @property
+    def has_glide_path(self) -> bool:
+        """True iff the retirement allocation is set AND differs from accumulation."""
+        if self.retirement_eq_weight is None:
+            return False
+        return abs(self.retirement_eq_weight - self.eq_weight) > 1e-9
+
+    def eq_weight_in_year(self, year_1_indexed: int) -> float:
+        """Equity weight applicable in a given year (1-indexed)."""
+        if self.has_glide_path and year_1_indexed >= self.distribution_start_year:
+            return float(self.retirement_eq_weight)
+        return self.eq_weight
+
+    def fi_weight_in_year(self, year_1_indexed: int) -> float:
+        """Fixed-income weight applicable in a given year (1-indexed)."""
+        return 1.0 - self.eq_weight_in_year(year_1_indexed)
 
 
 @dataclass
@@ -304,19 +327,19 @@ def simulate_scenario(scen: Scenario, inputs: SimInputs, seed_offset: int) -> di
 
     contrib_years = max(0, int(scen.contribution_years))
 
-    # Pre-compute return generators based on method
+    # Pre-compute the re-centered historical series once (bootstrap mode only).
+    # We compute annual portfolio returns ON THE FLY each year because the
+    # equity/FI weights can change at the glide-path transition.
     if ra.method == "bootstrap":
         eq_recentered, fi_recentered = _build_recentered_pairs(ra)
         n_hist = len(eq_recentered)
-        # Annual portfolio return for any sampled year:
-        portfolio_returns = scen.eq_weight * eq_recentered + scen.fi_weight * fi_recentered
-    else:
-        mu_a, sig_a = blended_params(scen.eq_weight, scen.fi_weight, ra)
-        mu_p = mu_a / k
-        sig_p = sig_a / np.sqrt(k)
 
     for y in range(1, yrs + 1):
         infl_factor = (1 + inputs.inflation) ** (y - 1)
+
+        # Allocation weights for this year (handles glide-path transition).
+        eq_w_y = scen.eq_weight_in_year(y)
+        fi_w_y = scen.fi_weight_in_year(y)
 
         if y <= contrib_years:
             annual_contrib = scen.annual_contribution * infl_factor
@@ -330,7 +353,9 @@ def simulate_scenario(scen: Scenario, inputs: SimInputs, seed_offset: int) -> di
             # is preserved automatically because we sample year indices, not
             # eq and fi independently).
             year_idx = rng.integers(0, n_hist, size=n)
-            annual_r = portfolio_returns[year_idx]
+            # Build this year's portfolio return using THIS YEAR'S weights.
+            annual_r = (eq_w_y * eq_recentered[year_idx]
+                        + fi_w_y * fi_recentered[year_idx])
             # Decompose into k equal per-period returns. Using geometric
             # decomposition: (1+r_period)^k = (1+r_annual)
             with np.errstate(invalid="ignore"):
@@ -342,6 +367,10 @@ def simulate_scenario(scen: Scenario, inputs: SimInputs, seed_offset: int) -> di
                 bal = np.maximum(bal, 0.0)
                 bal = np.maximum(bal * (1 + per_period_r), 0.0)
         else:
+            # Parametric mode — recompute (mu, sigma) for this year's weights.
+            mu_a_y, sig_a_y = blended_params(eq_w_y, fi_w_y, ra)
+            mu_p = mu_a_y / k
+            sig_p = sig_a_y / np.sqrt(k)
             for _ in range(k):
                 bal = bal - per_period_cf
                 bal = np.maximum(bal, 0.0)
@@ -353,12 +382,28 @@ def simulate_scenario(scen: Scenario, inputs: SimInputs, seed_offset: int) -> di
     yr_final = yearly[:, -1]
     yr10 = yearly[:, min(10, yrs)]
     yr20 = yearly[:, min(20, yrs)]
-    mu_a, sig_a = blended_params(scen.eq_weight, scen.fi_weight, ra)
+    # For display: show the *retirement-phase* blended params if glide path,
+    # else the (unchanged) static blend. We compute both so the report can
+    # surface the transition explicitly.
+    mu_a_acc, sig_a_acc = blended_params(scen.eq_weight, scen.fi_weight, ra)
+    if scen.has_glide_path:
+        mu_a_ret, sig_a_ret = blended_params(
+            scen.retirement_eq_weight, 1.0 - scen.retirement_eq_weight, ra
+        )
+    else:
+        mu_a_ret, sig_a_ret = mu_a_acc, sig_a_acc
+    # The "primary" mu/sigma for tables uses the retirement blend (the regime
+    # that holds for most of a typical horizon). Static scenarios are unaffected.
+    mu_a, sig_a = mu_a_ret, sig_a_ret
 
     return {
         "scenario": scen,
         "mu_a": mu_a,
         "sig_a": sig_a,
+        "mu_a_acc": mu_a_acc,         # accumulation-phase blended mean
+        "sig_a_acc": sig_a_acc,       # accumulation-phase blended sigma
+        "mu_a_ret": mu_a_ret,         # retirement-phase blended mean
+        "sig_a_ret": sig_a_ret,       # retirement-phase blended sigma
         "balances": yearly,
         "median_path": np.median(yearly, axis=0),
         "p20_path": np.percentile(yearly, 20, axis=0),
@@ -511,34 +556,171 @@ def chart_yfinal_distributions(results: List[dict], inputs: SimInputs) -> io.Byt
 
 
 def chart_allocations(results: List[dict]) -> io.BytesIO:
+    """
+    Render the allocation comparison.
+
+    If ANY scenario has a glide path, render a dual-row layout:
+      - Top row    = accumulation-phase allocation
+      - Arrow row  = gold transition arrow on glide-path scenarios
+      - Bottom row = retirement-phase allocation (or "(no change)" for static)
+
+    If no scenario has a glide path, render the original single-row pies.
+
+    Layout uses an explicit GridSpec with margins reserved for the title,
+    legend, and arrow annotations — this AVOIDS the `tight_layout` warning
+    that fires when matplotlib can't squeeze suptitles + bbox_to_anchor
+    legends + cross-axes annotations into auto-computed padding.
+    """
     _setup_mpl()
     n = len(results)
-    fig, axes = plt.subplots(1, n, figsize=(9, 3.0), dpi=180)
-    if n == 1:
-        axes = [axes]
+    any_glide = any(r["scenario"].has_glide_path for r in results)
 
-    for ax, r in zip(axes, results):
-        scen = r["scenario"]
-        sizes = [scen.eq_weight * 100, scen.fi_weight * 100]
-        ax.pie(sizes, colors=[NAVY_HEX, GOLD_HEX], startangle=90,
-               wedgeprops=dict(edgecolor="white", linewidth=2))
-        ax.set_title(
-            f"{scen.name} — {int(scen.eq_weight*100)}% / {int(scen.fi_weight*100)}%",
-            fontsize=10, color=NAVY_HEX, fontweight="bold", pad=8,
+    # ---------------- Single-row layout (no glide paths anywhere) -----------
+    if not any_glide:
+        fig = plt.figure(figsize=(9.0, 3.2), dpi=180, facecolor="white")
+        # Reserve top space for titles, bottom for legend, sides for breathing room.
+        gs = fig.add_gridspec(
+            nrows=1, ncols=n,
+            left=0.04, right=0.96, top=0.82, bottom=0.20,
+            wspace=0.30,
         )
-        ax.text(0, 0.15, f"{int(scen.eq_weight*100)}%", ha="center", va="center",
-                fontsize=11, color="white", fontweight="bold")
-        ax.text(0, -0.25, "Equity", ha="center", va="center",
-                fontsize=8, color="white")
+        for i, r in enumerate(results):
+            ax = fig.add_subplot(gs[0, i])
+            scen = r["scenario"]
+            sizes = [scen.eq_weight * 100, scen.fi_weight * 100]
+            ax.pie(sizes, colors=[NAVY_HEX, GOLD_HEX], startangle=90,
+                   wedgeprops=dict(edgecolor="white", linewidth=2))
+            ax.set_title(
+                f"{scen.name} — {int(scen.eq_weight*100)}% / {int(scen.fi_weight*100)}%",
+                fontsize=10, color=NAVY_HEX, fontweight="bold", pad=8,
+            )
+            ax.text(0, 0.10, f"{int(scen.eq_weight*100)}%", ha="center", va="center",
+                    fontsize=11, color="white", fontweight="bold")
+            ax.text(0, -0.20, "Equity", ha="center", va="center",
+                    fontsize=8, color="white")
 
+        legend_elems = [Patch(color=NAVY_HEX, label="Equity"),
+                        Patch(color=GOLD_HEX, label="Fixed Income")]
+        fig.legend(handles=legend_elems, loc="lower center", ncol=2,
+                   frameon=False, fontsize=9, bbox_to_anchor=(0.5, 0.02))
+        # NOTE: deliberately NO tight_layout/constrained_layout call here —
+        # GridSpec margins are set explicitly above.
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", dpi=180, bbox_inches="tight",
+                    facecolor="white")
+        plt.close(fig)
+        buf.seek(0)
+        return buf
+
+    # ---------------- Dual-row layout (glide paths present) ------------------
+    # Top row: accumulation; bottom row: retirement; arrows in between for
+    # glide scenarios. Heights are biased toward the pies so the arrow band
+    # in the middle is a thin visual divider.
+    fig = plt.figure(figsize=(9.0, 5.7), dpi=180, facecolor="white")
+    gs = fig.add_gridspec(
+        nrows=2, ncols=n,
+        left=0.04, right=0.96, top=0.92, bottom=0.13,
+        hspace=0.85, wspace=0.30,
+        height_ratios=[1, 1],
+    )
+
+    def _draw_pie(ax, eq_pct, fi_pct, label_eq=True):
+        """Render one pie with equity centered label."""
+        sizes = [eq_pct, fi_pct]
+        ax.pie(sizes, colors=[NAVY_HEX, GOLD_HEX], startangle=90,
+               wedgeprops=dict(edgecolor="white", linewidth=2),
+               radius=0.95)
+        if label_eq:
+            ax.text(0, 0.10, f"{int(round(eq_pct))}%",
+                    ha="center", va="center",
+                    fontsize=11, color="white", fontweight="bold")
+            ax.text(0, -0.20, "Equity", ha="center", va="center",
+                    fontsize=8, color="white")
+        ax.set_aspect("equal")
+
+    def _draw_no_change_placeholder(ax):
+        """Italic '(no change)' centered in the cell — for static scenarios."""
+        ax.set_aspect("equal")
+        ax.set_xlim(-1, 1)
+        ax.set_ylim(-1, 1)
+        ax.axis("off")
+        ax.text(0, 0.0, "(no change)", ha="center", va="center",
+                fontsize=11, color=TEXT_MED_HEX, style="italic")
+
+    for i, r in enumerate(results):
+        scen = r["scenario"]
+
+        # ----- Top row: accumulation pie + title above -----
+        ax_top = fig.add_subplot(gs[0, i])
+        _draw_pie(ax_top, scen.eq_weight * 100, scen.fi_weight * 100)
+        if scen.has_glide_path:
+            top_label = (f"{scen.name}\nAccumulation — "
+                         f"{int(scen.eq_weight*100)}/{int(scen.fi_weight*100)}")
+        else:
+            top_label = (f"{scen.name} — "
+                         f"{int(scen.eq_weight*100)}/{int(scen.fi_weight*100)}\n"
+                         f"All Years")
+        ax_top.set_title(top_label, fontsize=10, color=NAVY_HEX,
+                         fontweight="bold", pad=8)
+
+        # ----- Bottom row: retirement pie OR placeholder -----
+        # Critical: the LABEL goes BELOW the pie, not above (no set_title call).
+        # This keeps the space above the bottom pie clear so the glide arrow
+        # can terminate directly on top of the bottom pie without colliding
+        # with text. For static scenarios we just show "(no change)" centered
+        # in the cell — no second label.
+        ax_bot = fig.add_subplot(gs[1, i])
+        if scen.has_glide_path:
+            ret_eq = float(scen.retirement_eq_weight) * 100
+            ret_fi = (1.0 - float(scen.retirement_eq_weight)) * 100
+            _draw_pie(ax_bot, ret_eq, ret_fi)
+            # Label goes BELOW the pie (using ax.text in axes coords).
+            ax_bot.text(
+                0, -1.20,
+                f"Retirement (Yr {scen.distribution_start_year}+) — "
+                f"{int(round(ret_eq))}/{int(round(ret_fi))}",
+                ha="center", va="top",
+                fontsize=9.5, color=TEXT_DARK_HEX, fontweight="bold",
+                transform=ax_bot.transData,
+            )
+        else:
+            _draw_no_change_placeholder(ax_bot)
+
+        # ----- Glide-path arrow between the rows (figure coords) ---
+        # Goes from below the TOP pie to above the BOTTOM pie. Because we
+        # moved the bottom label BELOW the pie, the area above the bottom
+        # pie is clear and the arrow lands on it cleanly.
+        if scen.has_glide_path:
+            top_bbox = ax_top.get_position()
+            bot_bbox = ax_bot.get_position()
+            x_center = (top_bbox.x0 + top_bbox.x1) / 2
+            # Start just below the top axis (top pie sits in upper part of axis,
+            # so leave some clearance below the pie).
+            y_arrow_top = top_bbox.y0 + 0.005
+            # End just above the bottom axis (top of bottom pie).
+            y_arrow_bot = bot_bbox.y1 - 0.005
+            fig.add_artist(
+                plt.matplotlib.patches.FancyArrowPatch(
+                    (x_center, y_arrow_top),
+                    (x_center, y_arrow_bot),
+                    transform=fig.transFigure,
+                    arrowstyle="-|>", mutation_scale=18,
+                    color=GOLD_HEX, linewidth=2.0, alpha=0.95,
+                )
+            )
+
+    # Single bottom legend
     legend_elems = [Patch(color=NAVY_HEX, label="Equity"),
                     Patch(color=GOLD_HEX, label="Fixed Income")]
-    fig.legend(handles=legend_elems, loc="lower center", ncol=2, frameon=False,
-               fontsize=9, bbox_to_anchor=(0.5, -0.02))
-    plt.tight_layout()
+    fig.legend(handles=legend_elems, loc="lower center", ncol=2,
+               frameon=False, fontsize=9.5, bbox_to_anchor=(0.5, 0.02))
 
+    # GridSpec margins were set explicitly above. NO tight_layout() call —
+    # it would reset our margins and warn about the FancyArrowPatch
+    # annotations falling outside its computed bbox.
     buf = io.BytesIO()
-    plt.savefig(buf, format="png", dpi=180, bbox_inches="tight", facecolor="white")
+    fig.savefig(buf, format="png", dpi=180, bbox_inches="tight",
+                facecolor="white")
     plt.close(fig)
     buf.seek(0)
     return buf
@@ -687,12 +869,30 @@ def build_pdf(results: List[dict], inputs: SimInputs,
 
     # ==================== COVER ====================
     n_scen = len(inputs.scenarios)
-    eq_strs = " • ".join([f"{int(s.eq_weight*100)}/{int(s.fi_weight*100)}"
-                          for s in inputs.scenarios])
+
+    def _alloc_str(s: Scenario) -> str:
+        """e.g. '60/40' for static, '80/20→60/40' for glide path."""
+        base = f"{int(s.eq_weight*100)}/{int(s.fi_weight*100)}"
+        if s.has_glide_path:
+            ret = (f"{int(s.retirement_eq_weight*100)}/"
+                   f"{int((1.0-s.retirement_eq_weight)*100)}")
+            return f"{base}→{ret}"
+        return base
+
+    eq_strs = " • ".join([_alloc_str(s) for s in inputs.scenarios])
     dist_strs = ", ".join([f"${int(s.annual_distribution/1000)}K"
                            for s in inputs.scenarios])
-    mu_strs = [blended_params(s.eq_weight, s.fi_weight, inputs.return_assumptions)[0]
-               for s in inputs.scenarios]
+    # Use retirement-phase blended μ for glide scenarios (the regime that
+    # holds for the majority of a typical horizon).
+    def _scen_mu(s: Scenario) -> float:
+        if s.has_glide_path:
+            return blended_params(s.retirement_eq_weight,
+                                  1.0 - s.retirement_eq_weight,
+                                  inputs.return_assumptions)[0]
+        return blended_params(s.eq_weight, s.fi_weight,
+                              inputs.return_assumptions)[0]
+    mu_strs = [_scen_mu(s) for s in inputs.scenarios]
+    any_glide = any(s.has_glide_path for s in inputs.scenarios)
 
     story.append(Spacer(1, 0.3 * inch))
     story.append(Paragraph(
@@ -836,18 +1036,26 @@ def build_pdf(results: List[dict], inputs: SimInputs,
         P_KICKER,
     ))
 
-    # Top fact strip
+    # Top fact strip — use variable column widths because the equity column
+    # may carry a long glide notation like "60/40 • 80/20→60/40 • 80/20".
+    # Total available: PAGE_W - 1.2*inch (margins) = 7.3 inch.
     fact_data = [
         [f"${inputs.initial/1e6:.1f}M",
          eq_strs,
-         dist_label.replace(" / yr", " / yr"),
+         dist_label,
          inputs.distribution_frequency,
          f"{inputs.horizon_years} Years",
          f"{inputs.inflation*100:.2f}%"],
         ["Initial Investment", "Equity / Fixed Income", "Annual Distribution",
          "Distribution Frequency", "Time Horizon", "Inflation"],
     ]
-    fact_tbl = Table(fact_data, colWidths=[1.15 * inch] * 6)
+    # Give the equity column more room when glide path notation is in play
+    if any_glide:
+        fact_widths = [0.95 * inch, 2.10 * inch, 1.20 * inch,
+                       1.15 * inch, 0.95 * inch, 0.95 * inch]
+    else:
+        fact_widths = [1.15 * inch] * 6
+    fact_tbl = Table(fact_data, colWidths=fact_widths)
     fact_tbl.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), LIGHT_BG),
         ("FONT", (0, 0), (-1, 0), "Helvetica-Bold", 10),
@@ -867,7 +1075,7 @@ def build_pdf(results: List[dict], inputs: SimInputs,
 
     story.extend(section_header("Executive Summary"))
     scen_descs = ", ".join(
-        f"<b>{int(s.eq_weight*100)}/{int(s.fi_weight*100)} ({s.name})</b>"
+        f"<b>{_alloc_str(s)} ({s.name})</b>"
         for s in inputs.scenarios
     )
 
@@ -922,13 +1130,39 @@ def build_pdf(results: List[dict], inputs: SimInputs,
             f"treated as independent."
         )
 
+    # Optional glide-path paragraph
+    glide_text = ""
+    if any_glide:
+        glide_scens = [s for s in inputs.scenarios if s.has_glide_path]
+        # Most reports have just one glide scenario, but handle the general case
+        glide_descs = "; ".join(
+            f"{s.name} rebalances from "
+            f"{int(s.eq_weight*100)}% equity / {int(s.fi_weight*100)}% fixed income "
+            f"during accumulation to "
+            f"{int(s.retirement_eq_weight*100)}% equity / "
+            f"{int((1-s.retirement_eq_weight)*100)}% fixed income at the start of "
+            f"the distribution phase (Year {s.distribution_start_year})"
+            for s in glide_scens
+        )
+        glide_text = (
+            "<br/><br/>"
+            "<b>Glide path:</b> One or more scenarios use a glide-path allocation that "
+            "shifts from a more aggressive accumulation-phase mix to a more conservative "
+            "retirement-phase mix when distributions begin. The transition is sharp — "
+            "the portfolio is rebalanced once at the start of the retirement phase. "
+            f"Specifically, {glide_descs}. This pattern reflects the common practice "
+            "of de-risking around retirement to reduce sequence-of-returns risk during "
+            "the early withdrawal years."
+        )
+
     exec_text = (
         f"This report presents a {inputs.horizon_years}-year Monte Carlo simulation for a "
-        f"${inputs.initial:,.0f} portfolio, evaluating {n_scen} Equity / Fixed Income "
-        f"allocation strateg{'ies' if n_scen > 1 else 'y'} — {scen_descs}. "
+        f"${inputs.initial:,.0f} portfolio, evaluating {n_scen} allocation "
+        f"strateg{'ies' if n_scen > 1 else 'y'} — {scen_descs}. "
         f"Distributions are paid {inputs.distribution_frequency.lower()}, escalating "
         f"{inputs.inflation*100:.1f}% annually to maintain real purchasing power. "
         f"{contrib_phase_text}"
+        f"{glide_text}"
         f"<br/><br/>"
         f"{method_text} "
         f"The simulation runs {inputs.n_paths:,} independent paths per scenario."
@@ -937,9 +1171,16 @@ def build_pdf(results: List[dict], inputs: SimInputs,
 
     # Return assumptions table
     story.extend(section_header(f"Return Assumptions — {ra.label}"))
-    blended_data = [(blended_params(s.eq_weight, s.fi_weight, ra)) for s in inputs.scenarios]
+    # For glide scenarios, use retirement weights for the displayed blend
+    # (the regime that holds for the majority of the horizon).
+    def _blend_for_display(s: Scenario):
+        if s.has_glide_path:
+            return blended_params(s.retirement_eq_weight,
+                                  1.0 - s.retirement_eq_weight, ra)
+        return blended_params(s.eq_weight, s.fi_weight, ra)
+    blended_data = [_blend_for_display(s) for s in inputs.scenarios]
     header = ["Parameter", "Equity", "Fixed Income"] + [
-        f"{int(s.eq_weight*100)}/{int(s.fi_weight*100)} Blend" for s in inputs.scenarios
+        f"{_alloc_str(s)} Blend" for s in inputs.scenarios
     ]
 
     if ra.method == "bootstrap":
@@ -1032,13 +1273,37 @@ def build_pdf(results: List[dict], inputs: SimInputs,
     ))
 
     story.extend(section_header(f"{inputs.horizon_years}-Year Outcome Summary"))
-    summary_header = ["Metric"] + [
-        f"{r['scenario'].name}\n({int(r['scenario'].eq_weight*100)}% / "
-        f"{int(r['scenario'].fi_weight*100)}%)"
-        for r in results
-    ]
+    def _scen_col_header(s: Scenario) -> str:
+        if s.has_glide_path:
+            return (f"{s.name}\n({int(s.eq_weight*100)}/{int(s.fi_weight*100)} → "
+                    f"{int(s.retirement_eq_weight*100)}/"
+                    f"{int((1-s.retirement_eq_weight)*100)})")
+        return (f"{s.name}\n({int(s.eq_weight*100)}% / {int(s.fi_weight*100)}%)")
+    summary_header = ["Metric"] + [_scen_col_header(r['scenario']) for r in results]
 
     rows = []
+
+    # Allocation rows (only shown if any scenario has a glide path — for static
+    # scenarios the allocation is already in the column header).
+    if any_glide:
+        rows.append(
+            ["Accumulation Allocation (Eq / FI)"]
+            + [f"{int(r['scenario'].eq_weight*100)}% / "
+               f"{int(r['scenario'].fi_weight*100)}%" for r in results]
+        )
+        rows.append(
+            ["Retirement Allocation (Eq / FI)"]
+            + [(f"{int(r['scenario'].retirement_eq_weight*100)}% / "
+                f"{int((1-r['scenario'].retirement_eq_weight)*100)}%"
+                if r['scenario'].has_glide_path else "(no change)")
+               for r in results]
+        )
+        rows.append(
+            ["Glide Transition Year"]
+            + [(f"Yr {r['scenario'].distribution_start_year}"
+                if r['scenario'].has_glide_path else "—")
+               for r in results]
+        )
 
     # Contribution rows (only shown if any scenario has contributions)
     if has_contrib:
@@ -1142,8 +1407,7 @@ def build_pdf(results: List[dict], inputs: SimInputs,
 
     story.extend(section_header("Detailed Monte Carlo Statistics"))
     det_header = ["Statistic"] + [
-        f"{r['scenario'].name} ({int(r['scenario'].eq_weight*100)}/"
-        f"{int(r['scenario'].fi_weight*100)})" for r in results
+        f"{r['scenario'].name} ({_alloc_str(r['scenario'])})" for r in results
     ]
     det_rows = [
         ["Mean Final Value"] + [fmt_m(r["mean_yfinal"]) for r in results],
@@ -1173,18 +1437,39 @@ def build_pdf(results: List[dict], inputs: SimInputs,
 
     # ==================== ALLOCATION COMPARISON + KEY FINDINGS ====================
     story.extend(section_header("Allocation Comparison"))
-    story.append(Paragraph(
-        "Each allocation maintains the same underlying asset classes — U.S. equity and "
-        "U.S. fixed income — and the same distribution policy. The variable across scenarios "
-        "is the equity weighting and/or distribution amount. Higher equity weights raise both "
-        "expected return and expected volatility.",
-        P_BODY,
-    ))
-    story.append(Image(img_alloc_buf, width=7.0 * inch, height=2.3 * inch))
-    story.append(Paragraph(
-        f"Figure 3 — {n_scen} target allocation{'s' if n_scen > 1 else ''} evaluated.",
-        P_FIGCAP,
-    ))
+    if any_glide:
+        alloc_intro = (
+            "Each allocation maintains the same underlying asset classes — U.S. equity and "
+            "U.S. fixed income — and the same distribution policy. Scenarios with a "
+            "<b>glide path</b> rebalance from a more aggressive accumulation-phase "
+            "allocation to a more conservative retirement-phase allocation when "
+            "distributions begin. The transition is sharp — the portfolio rebalances "
+            "once at the start of the retirement phase."
+        )
+        fig3_caption = (
+            f"Figure 3 — {n_scen} allocation strateg"
+            f"{'ies' if n_scen > 1 else 'y'} evaluated. Top row shows the "
+            f"accumulation-phase allocation; bottom row shows the post-retirement "
+            f"allocation. Gold arrows mark scenarios that rebalance at the start of "
+            f"distributions."
+        )
+    else:
+        alloc_intro = (
+            "Each allocation maintains the same underlying asset classes — U.S. equity and "
+            "U.S. fixed income — and the same distribution policy. The variable across scenarios "
+            "is the equity weighting and/or distribution amount. Higher equity weights raise both "
+            "expected return and expected volatility."
+        )
+        fig3_caption = (
+            f"Figure 3 — {n_scen} target allocation"
+            f"{'s' if n_scen > 1 else ''} evaluated."
+        )
+    story.append(Paragraph(alloc_intro, P_BODY))
+
+    # Dual-pie image needs more vertical space when glide path is present.
+    img_h = 3.6 * inch if any_glide else 2.3 * inch
+    story.append(Image(img_alloc_buf, width=7.0 * inch, height=img_h))
+    story.append(Paragraph(fig3_caption, P_FIGCAP))
 
     story.extend(section_header("Key Findings"))
     for r in results:
@@ -1197,16 +1482,33 @@ def build_pdf(results: List[dict], inputs: SimInputs,
             )
         else:
             cf_desc = f"${s.annual_distribution:,.0f}/yr distributed"
+
+        # Allocation header: "60% Eq / 40% FI" for static, glide-aware for glide
+        if s.has_glide_path:
+            alloc_header = (
+                f"{int(s.eq_weight*100)}/{int(s.fi_weight*100)} accumulation → "
+                f"{int(s.retirement_eq_weight*100)}/"
+                f"{int((1-s.retirement_eq_weight)*100)} retirement"
+            )
+            ret_text = (
+                f"Blended expected return: {r['mu_a_acc']*100:.2f}% (accumulation) → "
+                f"{r['mu_a_ret']*100:.2f}% (retirement)."
+            )
+        else:
+            alloc_header = (f"{int(s.eq_weight*100)}% Equity / "
+                            f"{int(s.fi_weight*100)}% Fixed Income")
+            ret_text = (f"Blended expected return: {r['mu_a']*100:.2f}%; "
+                        f"annual volatility: {r['sig_a']*100:.2f}%.")
+
         finding = (
-            f"<b>{s.name} — {int(s.eq_weight*100)}% Equity / {int(s.fi_weight*100)}% "
-            f"Fixed Income, {cf_desc}:</b> "
+            f"<b>{s.name} — {alloc_header}, {cf_desc}:</b> "
             f"At the median, this allocation projects a Year-{inputs.horizon_years} portfolio "
             f"value of <b>{fmt_m(r['median_yfinal'])}</b>, with a 20th–80th percentile range of "
             f"{fmt_m(r['p20_yfinal'])} to {fmt_m(r['p80_yfinal'])}. "
             f"Probability of portfolio ruin: <b>{r['p_ruin']*100:.2f}%</b>. "
             f"Probability of ending above the initial ${inputs.initial/1e6:.1f}M investment: "
             f"<b>{r['p_above_init']*100:.1f}%</b>. "
-            f"Blended expected return: {r['mu_a']*100:.2f}%; annual volatility: {r['sig_a']*100:.2f}%."
+            f"{ret_text}"
         )
         story.append(Paragraph(finding, P_BODY))
 
