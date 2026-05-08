@@ -11,7 +11,7 @@ from __future__ import annotations
 import io
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import numpy as np
 import streamlit as st
@@ -1251,6 +1251,89 @@ def build_pdf(results: List[dict], inputs: SimInputs,
 # =============================================================================
 # Streamlit UI
 # =============================================================================
+def _parse_dollar_input(raw: str) -> Optional[int]:
+    """
+    Parse a freeform dollar string into an integer.
+
+    Accepts:
+      "5400000", "5,400,000", "$5,400,000"
+      "5.4M", "5.4m", "$5.4M"
+      "225K", "225k"
+      "1.5B", "1.5b"
+      "" or whitespace -> 0
+      anything malformed -> None (caller can show an error)
+    """
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    if not s:
+        return 0
+    # Strip $, commas, spaces
+    s = s.replace("$", "").replace(",", "").replace(" ", "")
+    # Detect suffix
+    multiplier = 1
+    if s and s[-1].lower() == "k":
+        multiplier = 1_000
+        s = s[:-1]
+    elif s and s[-1].lower() == "m":
+        multiplier = 1_000_000
+        s = s[:-1]
+    elif s and s[-1].lower() == "b":
+        multiplier = 1_000_000_000
+        s = s[:-1]
+    try:
+        value = float(s) * multiplier
+    except ValueError:
+        return None
+    return int(round(value))
+
+
+def dollar_input(label: str, default: int, key: str,
+                 min_value: int = 0, max_value: int = 1_000_000_000,
+                 help: str = None, disabled: bool = False) -> int:
+    """
+    Streamlit text input for dollar amounts that auto-formats with commas.
+
+    Behavior:
+      - User can type "5400000", "5,400,000", "$5.4M", "225K", etc.
+      - On submit (Enter or blur), the value is parsed and re-displayed with commas.
+      - Returns the integer dollar amount.
+      - If the input is malformed, shows an error and returns the prior valid value.
+    """
+    # Initialize stored display value once
+    state_key = f"{key}__display"
+    if state_key not in st.session_state:
+        st.session_state[state_key] = f"{default:,}"
+
+    raw = st.text_input(
+        label,
+        value=st.session_state[state_key],
+        key=key,
+        help=help,
+        disabled=disabled,
+    )
+
+    parsed = _parse_dollar_input(raw)
+    if parsed is None:
+        st.error(f"⚠️  Couldn't read \"{raw}\" as a dollar amount. "
+                 f"Try formats like 5,400,000 or $5.4M.")
+        # Fall back to the last good value
+        return _parse_dollar_input(st.session_state[state_key]) or default
+
+    # Clamp to bounds
+    if parsed < min_value:
+        parsed = min_value
+    elif parsed > max_value:
+        parsed = max_value
+
+    # Re-format the display so the user sees commas after Enter
+    formatted = f"{parsed:,}"
+    if formatted != raw:
+        st.session_state[state_key] = formatted
+
+    return parsed
+
+
 def _inject_becker_css():
     """Apply Becker brand styling to all Streamlit components."""
     st.markdown(
@@ -1487,9 +1570,14 @@ def main():
     with st.sidebar:
         st.header("Portfolio Inputs")
 
-        initial = st.number_input(
-            "Initial Investment ($)", min_value=100_000, max_value=1_000_000_000,
-            value=5_400_000, step=100_000, format="%d",
+        initial = dollar_input(
+            "Initial Investment ($)",
+            default=5_400_000,
+            key="initial",
+            min_value=100_000,
+            max_value=1_000_000_000,
+            help="Type freely — e.g., 5400000, 5,400,000, $5.4M, or 5.4m. "
+                 "Commas are added automatically.",
         )
         horizon = st.slider("Time Horizon (years)", 5, 50, 30, step=1)
         inflation = st.slider("Inflation Rate (%)", 0.0, 8.0, 3.0, step=0.25) / 100
@@ -1654,12 +1742,13 @@ def main():
                 help="Number of years to contribute before distributions begin. "
                      "Set to 0 if there is no contribution phase.",
             )
-            contrib_amt = st.number_input(
+            contrib_amt = dollar_input(
                 "Annual Contribution ($, today's dollars)",
+                default=ca_def, key=f"ca_{i}",
                 min_value=0, max_value=10_000_000,
-                value=ca_def, step=5_000, key=f"ca_{i}", format="%d",
                 disabled=(contrib_yrs == 0),
-                help="In today's dollars. Will be inflated forward automatically.",
+                help="In today's dollars. Type 50000, 50,000, or 50K. "
+                     "Will be inflated forward automatically.",
             )
 
             # ----- Distribution phase -----
@@ -1674,12 +1763,12 @@ def main():
                 f"DISTRIBUTION PHASE{dist_label_suffix.upper()}</div>",
                 unsafe_allow_html=True,
             )
-            dist = st.number_input(
+            dist = dollar_input(
                 "Annual Distribution ($, today's dollars)",
+                default=dist_def, key=f"dist_{i}",
                 min_value=0, max_value=10_000_000,
-                value=dist_def, step=5_000, key=f"dist_{i}", format="%d",
-                help="In today's dollars. Will be inflated forward to maintain "
-                     "real purchasing power.",
+                help="In today's dollars. Type 225000, 225,000, or 225K. "
+                     "Will be inflated forward to maintain real purchasing power.",
             )
 
             # Show what the first nominal distribution will be (for transparency)
