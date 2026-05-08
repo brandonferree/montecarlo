@@ -350,12 +350,16 @@ def main():
 
     # We cache the result keyed on the inputs. This way the user can
     # tweak the PDF or re-render charts without re-solving.
+    # NOTE: the `key` argument MUST NOT have a leading underscore. Streamlit
+    # treats leading-underscore parameters as "don't hash this" — that would
+    # silently break cache invalidation when goals change.
     @st.cache_data(show_spinner=False)
-    def _solve_all(_key: str, goals_repr, initial_savings: float,
+    def _solve_all(key: str, initial_savings: float,
                    target_success: float, inflation: float,
                    ra_repr: str, n_paths: int):
-        # `goals_repr` and `ra_repr` are used for cache-key purposes only;
-        # the real objects come from the closure.
+        # `key` and `ra_repr` exist purely to participate in the cache hash.
+        # The real Scenario objects come from the `goals` closure, which is
+        # rebuilt fresh on every Streamlit rerun from the current widget state.
         results = []
         sensitivity = []
         for g in goals:
@@ -391,7 +395,7 @@ def main():
             f"{n_sols} bisection searches… (this can take 20–60 seconds)"
         ):
             results, sensitivity = _solve_all(
-                cache_key, None, initial_savings, target_success,
+                cache_key, initial_savings, target_success,
                 inflation, ra.label, n_paths,
             )
         st.session_state["sg_results"] = results
