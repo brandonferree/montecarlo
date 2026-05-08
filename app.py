@@ -1288,6 +1288,34 @@ def _parse_dollar_input(raw: str) -> Optional[int]:
     return int(round(value))
 
 
+def _format_dollar_callback(widget_key: str, last_good_key: str,
+                            min_value: int, max_value: int):
+    """
+    Streamlit on_change callback for dollar_input.
+
+    Runs after the user types and presses Enter (or clicks away). Parses the
+    raw text in session_state[widget_key], clamps to bounds, and writes the
+    nicely-formatted version back to session_state[widget_key] so the widget
+    re-renders with commas. Stores the parsed integer value in
+    session_state[last_good_key] for the main flow to read.
+    """
+    raw = st.session_state.get(widget_key, "")
+    parsed = _parse_dollar_input(raw)
+    if parsed is None:
+        # Bad input — leave the raw text alone so the user can fix it; the
+        # main flow will detect this and surface an error.
+        st.session_state[f"{widget_key}__error"] = (
+            f'Couldn\'t read "{raw}" as a dollar amount. '
+            f"Try formats like 5,400,000 or $5.4M."
+        )
+        return
+    # Clear any prior error
+    st.session_state.pop(f"{widget_key}__error", None)
+    parsed = max(min_value, min(max_value, parsed))
+    st.session_state[widget_key] = f"{parsed:,}"
+    st.session_state[last_good_key] = parsed
+
+
 def dollar_input(label: str, default: int, key: str,
                  min_value: int = 0, max_value: int = 1_000_000_000,
                  help: str = None, disabled: bool = False) -> int:
@@ -1296,42 +1324,44 @@ def dollar_input(label: str, default: int, key: str,
 
     Behavior:
       - User can type "5400000", "5,400,000", "$5.4M", "225K", etc.
-      - On submit (Enter or blur), the value is parsed and re-displayed with commas.
+      - On Enter (or blur), the value reformats to "5,400,000" with commas.
       - Returns the integer dollar amount.
-      - If the input is malformed, shows an error and returns the prior valid value.
+      - Bad input shows an inline error and the prior value is kept.
     """
-    # Initialize stored display value once
-    state_key = f"{key}__display"
-    if state_key not in st.session_state:
-        st.session_state[state_key] = f"{default:,}"
+    last_good_key = f"{key}__last_good"
 
-    raw = st.text_input(
+    # First render: seed both the display string and the last-good integer
+    if key not in st.session_state:
+        st.session_state[key] = f"{default:,}"
+        st.session_state[last_good_key] = default
+
+    st.text_input(
         label,
-        value=st.session_state[state_key],
         key=key,
         help=help,
         disabled=disabled,
+        on_change=_format_dollar_callback,
+        args=(key, last_good_key, min_value, max_value),
     )
 
+    # Surface any error from the callback
+    err = st.session_state.get(f"{key}__error")
+    if err:
+        st.error(f"⚠️  {err}")
+
+    # The current valid integer value — even if user typed garbage, this is the
+    # last successfully-parsed amount.
+    current = st.session_state.get(last_good_key, default)
+
+    # Edge case: user is mid-edit (display doesn't yet match a parsed integer)
+    # but the raw text is parseable — return the parsed value so live preview
+    # stays in sync without needing the user to press Enter.
+    raw = st.session_state.get(key, "")
     parsed = _parse_dollar_input(raw)
-    if parsed is None:
-        st.error(f"⚠️  Couldn't read \"{raw}\" as a dollar amount. "
-                 f"Try formats like 5,400,000 or $5.4M.")
-        # Fall back to the last good value
-        return _parse_dollar_input(st.session_state[state_key]) or default
-
-    # Clamp to bounds
-    if parsed < min_value:
-        parsed = min_value
-    elif parsed > max_value:
-        parsed = max_value
-
-    # Re-format the display so the user sees commas after Enter
-    formatted = f"{parsed:,}"
-    if formatted != raw:
-        st.session_state[state_key] = formatted
-
-    return parsed
+    if parsed is not None:
+        parsed = max(min_value, min(max_value, parsed))
+        return parsed
+    return current
 
 
 def _inject_becker_css():
