@@ -2122,6 +2122,59 @@ def main():
                     f"**${nominal_first:,.0f}**"
                 )
 
+            # ----- Glide Path (optional) -----
+            # When enabled, the portfolio rebalances ONCE at the start of the
+            # distribution phase to the retirement-phase equity weight. Useful
+            # for de-risking around retirement to reduce sequence-of-returns
+            # risk. If disabled, the equity weight stays constant for the
+            # entire horizon (static allocation).
+            st.markdown(
+                f"<div style='color:{GOLD_HEX}; font-size:12px; font-weight:700; "
+                f"letter-spacing:0.5px; margin-top:10px; padding-top:6px; "
+                f"border-top:1px solid rgba(184,146,77,0.3);'>"
+                f"GLIDE PATH (OPTIONAL)</div>",
+                unsafe_allow_html=True,
+            )
+            glide_enabled = st.checkbox(
+                "Enable glide path (rebalance at retirement)",
+                value=False, key=f"glide_on_{i}",
+                help=(
+                    "When enabled, the portfolio rebalances once at the start "
+                    "of the distribution phase to a different equity weight. "
+                    "Common pattern: hold a higher equity weight during "
+                    "accumulation, then de-risk to a lower equity weight "
+                    "when distributions begin."
+                ),
+            )
+            # Default the retirement weight to a sensible de-risked value:
+            # 20 points lower than accumulation, floored at 30%.
+            ret_eq_default = max(30, eq_pct - 20)
+            ret_eq_pct = st.slider(
+                "Retirement Equity %", 0, 100, ret_eq_default, step=5,
+                key=f"ret_eq_{i}",
+                disabled=not glide_enabled,
+                help=(
+                    "The equity weight applied from the distribution start "
+                    "year onward. Fixed income is set to 100% minus this."
+                ),
+            )
+            if glide_enabled:
+                # Confirmation caption — make the transition explicit so the
+                # user can see exactly what will happen and when.
+                trans_yr = int(contrib_yrs) + 1
+                if abs(ret_eq_pct - eq_pct) < 1e-6:
+                    st.caption(
+                        ":warning: Retirement equity matches accumulation "
+                        "equity — no glide will be applied. Adjust the "
+                        "slider to enable a real transition."
+                    )
+                else:
+                    st.caption(
+                        f"Glide: **{eq_pct}/{100-eq_pct}** during accumulation "
+                        f"→ **{ret_eq_pct}/{100-ret_eq_pct}** from Year {trans_yr} "
+                        f"onward (rebalanced once)."
+                    )
+
             scenarios.append(Scenario(
                 name=name,
                 eq_weight=eq_pct / 100,
@@ -2129,6 +2182,8 @@ def main():
                 annual_distribution=float(dist),
                 contribution_years=int(contrib_yrs),
                 annual_contribution=float(contrib_amt),
+                retirement_eq_weight=(ret_eq_pct / 100) if glide_enabled else None,
+                retirement_fi_weight=((100 - ret_eq_pct) / 100) if glide_enabled else None,
             ))
 
     inputs = SimInputs(
@@ -2165,8 +2220,18 @@ def main():
             else:
                 phase_desc = f"−${s.annual_distribution/1000:,.0f}K/yr"
 
+            # Glide-aware allocation label for the preview header
+            if s.has_glide_path:
+                alloc_label = (
+                    f"{int(s.eq_weight*100)}/{int(s.fi_weight*100)} → "
+                    f"{int(s.retirement_eq_weight*100)}/"
+                    f"{int((1-s.retirement_eq_weight)*100)}"
+                )
+            else:
+                alloc_label = f"{int(s.eq_weight*100)}/{int(s.fi_weight*100)}"
+
             st.markdown(
-                f"**{s.name}** — {int(s.eq_weight*100)}/{int(s.fi_weight*100)}<br/>"
+                f"**{s.name}** — {alloc_label}<br/>"
                 f"<span style='color:#B8C4D6; font-size:12px;'>{phase_desc}</span>",
                 unsafe_allow_html=True,
             )
