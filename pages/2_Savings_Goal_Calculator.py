@@ -533,5 +533,8 @@ def main():
     _render_footer()
 
 
-if __name__ == "__main__":
-    main()
+# Always call main() — when Streamlit invokes this script as a Page via
+# st.navigation(), __name__ is not always "__main__", so we don't guard
+# the call. (Importing this file as a module would be unusual and would
+# also trigger main(), but in practice nothing imports this page.)
+main()
