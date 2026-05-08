@@ -3237,13 +3237,25 @@ def main():
         n_paths=int(n_paths),
     )
 
-    # ----- Run simulation (cached) -----
-    @st.cache_data(show_spinner="Running Monte Carlo simulation...")
-    def run_cached(_inputs_key: str, inputs: SimInputs):
-        return run_all_simulations(inputs)
-
+    # ----- Run simulation (cached in session_state) -----
+    # We previously used @st.cache_data here, but Streamlit's cache_data
+    # serializes the return value via pickle and stricter validation in
+    # recent Streamlit / Python combinations rejects our result dict as
+    # "unserializable" even though it contains only plain types and numpy
+    # arrays. Storing in st.session_state avoids the serialization round-trip
+    # entirely — Python objects live in memory between reruns and we manually
+    # invalidate when inputs change.
     inputs_key = repr(inputs)
-    results = run_cached(inputs_key, inputs)
+    cached = st.session_state.get("_main_sim_cache")
+    if cached is None or cached.get("key") != inputs_key:
+        with st.spinner("Running Monte Carlo simulation..."):
+            results = run_all_simulations(inputs)
+        st.session_state["_main_sim_cache"] = {
+            "key": inputs_key,
+            "results": results,
+        }
+    else:
+        results = cached["results"]
 
     st.divider()
 
