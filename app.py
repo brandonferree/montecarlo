@@ -179,6 +179,14 @@ class SimInputs:
 # while preserving the historical volatility, skew, and correlation structure
 # from the 1928–2024 series.
 PRESETS = {
+    "Bootstrap — Forward-looking (Aggressive)": ReturnAssumptions(
+        eq_mu=0.0950, eq_sigma=HIST_STATS["eq_sigma"],
+        fi_mu=0.0450, fi_sigma=HIST_STATS["fi_sigma"],
+        label="Bootstrap • Forward-Looking Aggressive",
+        method="bootstrap",
+        historical_period="1928–2024",
+        worst_eq=HIST_STATS["worst_eq"], worst_fi=HIST_STATS["worst_fi"],
+    ),
     "Bootstrap — Forward-looking (Moderate)": ReturnAssumptions(
         eq_mu=0.0800, eq_sigma=HIST_STATS["eq_sigma"],
         fi_mu=0.0450, fi_sigma=HIST_STATS["fi_sigma"],
@@ -1634,13 +1642,16 @@ def main():
         if method.startswith("Bootstrap"):
             preset_choice = st.selectbox(
                 "Preset",
-                ["Forward-looking (Moderate): 8% / 4.5%",
+                ["Forward-looking (Aggressive): 9.5% / 4.5%",
+                 "Forward-looking (Moderate): 8% / 4.5%",
                  "Forward-looking (Conservative): 7% / 4%",
                  "Historical means (1928–2024): 11.87% / 4.89%",
                  "Custom forward-looking μ"],
-                index=0,
+                index=1,
             )
-            if preset_choice.startswith("Forward-looking (Moderate)"):
+            if preset_choice.startswith("Forward-looking (Aggressive)"):
+                ra = PRESETS["Bootstrap — Forward-looking (Aggressive)"]
+            elif preset_choice.startswith("Forward-looking (Moderate)"):
                 ra = PRESETS["Bootstrap — Forward-looking (Moderate)"]
             elif preset_choice.startswith("Forward-looking (Conservative)"):
                 ra = PRESETS["Bootstrap — Forward-looking (Conservative)"]
