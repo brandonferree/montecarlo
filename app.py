@@ -3336,4 +3336,23 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # Streamlit multi-page navigation via st.navigation(). This explicitly
+    # labels each page in the sidebar — without it, the home page would
+    # show as "app" (derived from the entry-point filename), and the only
+    # way to change that label would be to rename app.py and reconfigure
+    # Streamlit Cloud's main-file path.
+    #
+    # Using st.navigation also disables Streamlit's automatic discovery of
+    # the pages/ folder, so we list every page explicitly here.
+    home_page = st.Page(
+        main,
+        title="Plan your retirement",
+        icon="📊",
+        default=True,
+    )
+    savings_page = st.Page(
+        "pages/2_Savings_Goal_Calculator.py",
+        title="Savings Goal Calculator",
+        icon="🎯",
+    )
+    st.navigation([home_page, savings_page]).run()
