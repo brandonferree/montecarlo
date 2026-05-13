@@ -2875,6 +2875,60 @@ def _inject_becker_css():
             letter-spacing: 0.3px;
         }}
 
+        /* ===== Live Preview scenario cards =====
+           Custom HTML replaces st.metric so:
+           - Dollar signs render as $ (st.metric was triggering LaTeX math
+             mode on paired $..$ values, producing green monospace runs)
+           - Font / size / weight stay consistent across every row
+           - The distribution-amount line is visually prominent in gold */
+        .becker-preview-card {{
+            background: rgba(31, 58, 95, 0.30);
+            border: 1px solid rgba(184, 146, 77, 0.20);
+            border-left: 3px solid {GOLD_HEX};
+            border-radius: 3px;
+            padding: 14px 16px 10px;
+            margin-bottom: 10px;
+            font-family: inherit;
+        }}
+        .becker-preview-name {{
+            color: white;
+            font-size: 15px;
+            font-weight: 700;
+            letter-spacing: 0.2px;
+            line-height: 1.2;
+        }}
+        .becker-preview-dist {{
+            color: {GOLD_HEX};
+            font-size: 17px;
+            font-weight: 700;
+            letter-spacing: 0.3px;
+            margin: 4px 0 10px 0;
+            line-height: 1.2;
+        }}
+        .becker-preview-row {{
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            gap: 8px;
+            padding: 7px 0;
+            border-top: 1px solid rgba(184, 146, 77, 0.18);
+        }}
+        .becker-preview-label {{
+            color: #B8C4D6;
+            font-size: 10.5px;
+            font-weight: 500;
+            letter-spacing: 0.7px;
+            text-transform: uppercase;
+            flex-shrink: 0;
+        }}
+        .becker-preview-value {{
+            color: {GOLD_HEX};
+            font-size: 18px;
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+            text-align: right;
+        }}
+
         /* Footer */
         .becker-footer {{
             margin-top: 32px;
@@ -3267,11 +3321,11 @@ def main():
         with col:
             if s.contribution_years > 0 and s.annual_contribution > 0:
                 phase_desc = (
-                    f"+${s.annual_contribution/1000:,.0f}K/yr × {s.contribution_years} yrs, "
-                    f"then −${s.annual_distribution/1000:,.0f}K/yr"
+                    f"+&#36;{s.annual_contribution/1000:,.0f}K/yr × {s.contribution_years} yrs, "
+                    f"then −&#36;{s.annual_distribution/1000:,.0f}K/yr"
                 )
             else:
-                phase_desc = f"−${s.annual_distribution/1000:,.0f}K/yr"
+                phase_desc = f"−&#36;{s.annual_distribution/1000:,.0f}K/yr"
 
             # Glide-aware allocation label for the preview header
             if s.has_glide_path:
@@ -3283,21 +3337,41 @@ def main():
             else:
                 alloc_label = f"{int(s.eq_weight*100)}/{int(s.fi_weight*100)}"
 
+            # Use &#36; (HTML entity) for dollar signs so Streamlit's markdown
+            # parser doesn't pair them up and render the middle as LaTeX math.
+            median_y_str = f"&#36;{r['median_yfinal']/1e6:,.2f}M"
+            band_str = (
+                f"&#36;{r['p20_yfinal']/1e6:,.2f}M – "
+                f"&#36;{r['p80_yfinal']/1e6:,.2f}M"
+            )
+            p_ruin_str = f"{r['p_ruin']*100:.2f}%"
+            p_above_str = f"{r['p_above_init']*100:.1f}%"
+
             st.markdown(
-                f"**{s.name}** — {alloc_label}<br/>"
-                f"<span style='color:#B8C4D6; font-size:12px;'>{phase_desc}</span>",
+                f"""
+                <div class="becker-preview-card">
+                  <div class="becker-preview-name">{s.name} — {alloc_label}</div>
+                  <div class="becker-preview-dist">{phase_desc}</div>
+                  <div class="becker-preview-row">
+                    <div class="becker-preview-label">Median Yr {horizon}</div>
+                    <div class="becker-preview-value">{median_y_str}</div>
+                  </div>
+                  <div class="becker-preview-row">
+                    <div class="becker-preview-label">20th–80th Pct</div>
+                    <div class="becker-preview-value">{band_str}</div>
+                  </div>
+                  <div class="becker-preview-row">
+                    <div class="becker-preview-label">Probability of Ruin</div>
+                    <div class="becker-preview-value">{p_ruin_str}</div>
+                  </div>
+                  <div class="becker-preview-row">
+                    <div class="becker-preview-label">P(Exceeds Initial)</div>
+                    <div class="becker-preview-value">{p_above_str}</div>
+                  </div>
+                </div>
+                """,
                 unsafe_allow_html=True,
             )
-            st.metric(
-                f"Median Yr {horizon}",
-                f"${r['median_yfinal']/1e6:,.2f}M",
-            )
-            st.metric(
-                "20th–80th Pct",
-                f"${r['p20_yfinal']/1e6:,.2f}M – ${r['p80_yfinal']/1e6:,.2f}M",
-            )
-            st.metric("Probability of Ruin", f"{r['p_ruin']*100:.2f}%")
-            st.metric("P(Exceeds Initial)", f"{r['p_above_init']*100:.1f}%")
 
     # Path chart preview
     st.markdown("**Median Path with 20th–80th Percentile Bands**")
