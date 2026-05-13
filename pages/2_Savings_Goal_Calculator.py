@@ -519,16 +519,17 @@ def main():
                     label_extra = label_css
                     # If this row's confidence matches the user's target, give
                     # it a subtle highlight so it's visually tied to the
-                    # headline number at the top of the card.
+                    # headline number at the top of the card. Text switches to
+                    # white (not gold) — gold-on-gold-tint was washing out.
                     if conf_pct == target_pct:
                         row_extra += (
                             "background:rgba(184,146,77,0.10);"
                             "margin:0 -16px;padding-left:16px;padding-right:16px;"
                         )
-                        label_extra += f"color:{GOLD_HEX};"
+                        label_extra += "color:white;"
                         val_extra = (
-                            f"color:{GOLD_HEX};font-size:15px;font-weight:700;"
-                            f"font-variant-numeric:tabular-nums;text-align:right;"
+                            "color:white;font-size:15px;font-weight:700;"
+                            "font-variant-numeric:tabular-nums;text-align:right;"
                         )
                     sens_rows_html += (
                         f'<div class="becker-preview-row" style="{row_extra}">'
