@@ -419,8 +419,23 @@ def main():
         snapshot = st.session_state["sg_inputs_snapshot"]
 
         st.subheader("Required Savings — Headline Result")
+        st.caption(
+            "Each card shows the bisection-solved required savings at your "
+            "target probability, the achieved success and median portfolio "
+            "value at that level, plus the same answer at 70/80/90% "
+            "confidence for comparison."
+        )
+        # Target probability the user selected on the sidebar — used below to
+        # subtly highlight the matching confidence row (if it happens to be
+        # 70/80/90; otherwise no row is highlighted).
+        target_pct = int(round(snapshot["target_success_prob"] * 100))
+        conf_levels_pct = [
+            int(round(c * 100)) for c in snapshot["confidence_levels"]
+        ]
+
         metric_cols = st.columns(len(results))
-        for col, res, g in zip(metric_cols, results, snapshot["goals"]):
+        for col, res, sens, g in zip(metric_cols, results, sensitivity,
+                                      snapshot["goals"]):
             with col:
                 if g.has_glide_path:
                     eq_a = round(g.accumulation_eq_weight * 100)
@@ -484,6 +499,44 @@ def main():
                 )
                 plan_value_css = value_css + "font-size:13px;font-weight:600;"
 
+                # Sub-section header introducing the rolled-in confidence
+                # breakdown (formerly its own standalone table).
+                sens_header_css = (
+                    f"color:{GOLD_HEX};font-size:10px;font-weight:700;"
+                    f"letter-spacing:1.2px;text-transform:uppercase;"
+                    f"margin:14px 0 0 0;padding:8px 0 2px 0;"
+                    f"border-top:1px solid rgba(184,146,77,0.35);"
+                )
+                # Build one row per confidence level (70 / 80 / 90 by default).
+                sens_rows_html = ""
+                for s, conf_pct in zip(sens, conf_levels_pct):
+                    sens_val = (
+                        f"&#36;{s['required_savings']:,.0f}/yr"
+                        + ("" if s["converged"] else " (capped)")
+                    )
+                    row_extra = row_css
+                    val_extra = value_css + "font-size:15px;"
+                    label_extra = label_css
+                    # If this row's confidence matches the user's target, give
+                    # it a subtle highlight so it's visually tied to the
+                    # headline number at the top of the card.
+                    if conf_pct == target_pct:
+                        row_extra += (
+                            "background:rgba(184,146,77,0.10);"
+                            "margin:0 -16px;padding-left:16px;padding-right:16px;"
+                        )
+                        label_extra += f"color:{GOLD_HEX};"
+                        val_extra = (
+                            f"color:{GOLD_HEX};font-size:15px;font-weight:700;"
+                            f"font-variant-numeric:tabular-nums;text-align:right;"
+                        )
+                    sens_rows_html += (
+                        f'<div class="becker-preview-row" style="{row_extra}">'
+                        f'<div class="becker-preview-label" style="{label_extra}">{conf_pct}% Confidence</div>'
+                        f'<div class="becker-preview-value" style="{val_extra}">{sens_val}</div>'
+                        f'</div>'
+                    )
+
                 # HTML written with no leading whitespace so the markdown
                 # parser never treats a line as an indented code block.
                 card_html = (
@@ -502,6 +555,8 @@ def main():
                     f'<div class="becker-preview-label" style="{label_css}">Median at Retirement</div>'
                     f'<div class="becker-preview-value" style="{value_css}">{median_str}</div>'
                     f'</div>'
+                    f'<div style="{sens_header_css}">Required Savings by Confidence</div>'
+                    f'{sens_rows_html}'
                     f'</div>'
                 )
                 st.markdown(card_html, unsafe_allow_html=True)
@@ -511,20 +566,6 @@ def main():
                         "may be infeasible for this scenario — consider a "
                         "longer horizon, lower income, or higher equity."
                     )
-
-        # ----- Sensitivity table -----
-        # Shown ABOVE the lifecycle chart: the numeric answer is the headline
-        # output and clients tend to compare confidence bands before they read
-        # the path chart.
-        st.subheader("Sensitivity — Required Savings by Confidence Level")
-        sens_table = {"Confidence": ["70%", "80%", "90%"]}
-        for sens, g in zip(sensitivity, snapshot["goals"]):
-            sens_table[g.name] = [
-                f"${s['required_savings']:,.0f}/yr"
-                + ("" if s["converged"] else " (capped)")
-                for s in sens
-            ]
-        st.table(sens_table)
 
         # ----- Lifecycle chart (same renderer used in the PDF report) -----
         # Visualizes the median portfolio path across both phases for each
