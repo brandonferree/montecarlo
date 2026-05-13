@@ -1,18 +1,24 @@
 [theme]
-# Becker Capital Management brand theme — dark
+# Becker Capital Management — Official Brand (dark)
+# Sourced from BCM brand guidelines (anthropic-skills:bcm-branding).
 base = "dark"
 
-# Navy backdrop matches the PDF cover (slightly deeper than #1F3A5F for screen contrast)
-backgroundColor = "#0F1F36"
+# Midnight — the official BCM dark background
+backgroundColor = "#0C2331"
 
-# Sidebar uses the official Becker navy from the PDF/website
-secondaryBackgroundColor = "#1F3A5F"
+# Slightly lighter Midnight tint for the sidebar so it reads as a distinct
+# panel. (Not an officially named brand color — derived from Midnight for
+# necessary UI contrast against the main bg.)
+secondaryBackgroundColor = "#1A3548"
 
-# Becker gold — used on sliders, buttons, links, focus rings
-primaryColor = "#B8924D"
+# Canyon — official tertiary accent (orange/copper). Drives sliders, primary
+# buttons, links, focus rings.
+primaryColor = "#AD5E25"
 
-# Body text — slightly off-white for readability without being harsh
-textColor = "#F0F0F0"
+# Light Grey — official BCM body text color on dark backgrounds
+textColor = "#EEEEED"
 
-# Sans-serif throughout to match the website
+# Sans-serif throughout. BCM brand specifies Montserrat for headings and
+# Lora for body, but those need to be loaded; Streamlit's generic sans-
+# serif is a safe fallback until those fonts are wired in.
 font = "sans serif"
