@@ -448,33 +448,83 @@ def main():
                     f"&#36;{res['result']['median_at_retirement']/1e6:,.2f}M"
                 )
 
-                st.markdown(
-                    f"""
-                    <div class="becker-preview-card">
-                      <div class="becker-preview-name">{g.name}</div>
-                      <div class="becker-preview-dist">{required_str}</div>
-                      <div class="becker-preview-row">
-                        <div class="becker-preview-label">Plan</div>
-                        <div class="becker-preview-value" style="font-size:13px; font-weight:600;">{phase_desc}</div>
-                      </div>
-                      <div class="becker-preview-row">
-                        <div class="becker-preview-label">Achieved Success</div>
-                        <div class="becker-preview-value">{achieved_str}</div>
-                      </div>
-                      <div class="becker-preview-row">
-                        <div class="becker-preview-label">Median at Retirement</div>
-                        <div class="becker-preview-value">{median_str}</div>
-                      </div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
+                # Inline styles back up the .becker-preview-* classes in
+                # _inject_becker_css(). Belt-and-suspenders against any
+                # markdown-indentation / class-stripping quirks — the previous
+                # iteration rendered plain white text on this page even though
+                # the same classes worked on the main page.
+                card_css = (
+                    f"background:rgba(31,58,95,0.30);"
+                    f"border:1px solid rgba(184,146,77,0.20);"
+                    f"border-left:3px solid {GOLD_HEX};"
+                    f"border-radius:3px;padding:14px 16px 10px;"
+                    f"margin-bottom:10px;font-family:inherit;"
                 )
+                name_css = (
+                    "color:white;font-size:15px;font-weight:700;"
+                    "letter-spacing:0.2px;line-height:1.2;"
+                )
+                dist_css = (
+                    f"color:{GOLD_HEX};font-size:17px;font-weight:700;"
+                    f"letter-spacing:0.3px;margin:4px 0 10px 0;line-height:1.2;"
+                )
+                row_css = (
+                    "display:flex;justify-content:space-between;"
+                    "align-items:baseline;gap:8px;padding:7px 0;"
+                    "border-top:1px solid rgba(184,146,77,0.18);"
+                )
+                label_css = (
+                    "color:#B8C4D6;font-size:10.5px;font-weight:500;"
+                    "letter-spacing:0.7px;text-transform:uppercase;"
+                    "flex-shrink:0;"
+                )
+                value_css = (
+                    f"color:{GOLD_HEX};font-size:18px;font-weight:700;"
+                    f"font-variant-numeric:tabular-nums;text-align:right;"
+                )
+                plan_value_css = value_css + "font-size:13px;font-weight:600;"
+
+                # HTML written with no leading whitespace so the markdown
+                # parser never treats a line as an indented code block.
+                card_html = (
+                    f'<div class="becker-preview-card" style="{card_css}">'
+                    f'<div class="becker-preview-name" style="{name_css}">{g.name}</div>'
+                    f'<div class="becker-preview-dist" style="{dist_css}">{required_str}</div>'
+                    f'<div class="becker-preview-row" style="{row_css}">'
+                    f'<div class="becker-preview-label" style="{label_css}">Plan</div>'
+                    f'<div class="becker-preview-value" style="{plan_value_css}">{phase_desc}</div>'
+                    f'</div>'
+                    f'<div class="becker-preview-row" style="{row_css}">'
+                    f'<div class="becker-preview-label" style="{label_css}">Achieved Success</div>'
+                    f'<div class="becker-preview-value" style="{value_css}">{achieved_str}</div>'
+                    f'</div>'
+                    f'<div class="becker-preview-row" style="{row_css}">'
+                    f'<div class="becker-preview-label" style="{label_css}">Median at Retirement</div>'
+                    f'<div class="becker-preview-value" style="{value_css}">{median_str}</div>'
+                    f'</div>'
+                    f'</div>'
+                )
+                st.markdown(card_html, unsafe_allow_html=True)
                 if not res["converged"]:
                     st.warning(
                         "⚠️ Bisection capped at the upper bound. The target "
                         "may be infeasible for this scenario — consider a "
                         "longer horizon, lower income, or higher equity."
                     )
+
+        # ----- Sensitivity table -----
+        # Shown ABOVE the lifecycle chart: the numeric answer is the headline
+        # output and clients tend to compare confidence bands before they read
+        # the path chart.
+        st.subheader("Sensitivity — Required Savings by Confidence Level")
+        sens_table = {"Confidence": ["70%", "80%", "90%"]}
+        for sens, g in zip(sensitivity, snapshot["goals"]):
+            sens_table[g.name] = [
+                f"${s['required_savings']:,.0f}/yr"
+                + ("" if s["converged"] else " (capped)")
+                for s in sens
+            ]
+        st.table(sens_table)
 
         # ----- Lifecycle chart (same renderer used in the PDF report) -----
         # Visualizes the median portfolio path across both phases for each
@@ -495,17 +545,6 @@ def main():
             st.image(chart_buf, use_container_width=True)
         except Exception as e:
             st.error(f"Could not render lifecycle chart: {e}")
-
-        # Sensitivity table
-        st.subheader("Sensitivity — Required Savings by Confidence Level")
-        sens_table = {"Confidence": ["70%", "80%", "90%"]}
-        for sens, g in zip(sensitivity, snapshot["goals"]):
-            sens_table[g.name] = [
-                f"${s['required_savings']:,.0f}/yr"
-                + ("" if s["converged"] else " (capped)")
-                for s in sens
-            ]
-        st.table(sens_table)
 
         # ----- PDF generation -----
         st.divider()
