@@ -422,7 +422,6 @@ def main():
         metric_cols = st.columns(len(results))
         for col, res, g in zip(metric_cols, results, snapshot["goals"]):
             with col:
-                glide_str = ""
                 if g.has_glide_path:
                     eq_a = round(g.accumulation_eq_weight * 100)
                     eq_r = round(g.retirement_eq_weight * 100)
@@ -431,25 +430,44 @@ def main():
                 else:
                     eq_a = round(g.accumulation_eq_weight * 100)
                     glide_str = f" • {eq_a}/{100-eq_a} static"
-                st.markdown(
-                    f"**{g.name}**<br/>"
-                    f"<span style='color:#B8C4D6; font-size:12px;'>"
+
+                phase_desc = (
                     f"{g.years_to_retirement}yr accum / "
-                    f"{g.years_in_retirement}yr ret"
-                    f"{glide_str}</span>",
+                    f"{g.years_in_retirement}yr ret{glide_str}"
+                )
+
+                # Use &#36; for $ so Streamlit's markdown parser doesn't pair
+                # them up and render the middle as LaTeX math (the bug that
+                # produced green monospace runs on the main page).
+                required_str = (
+                    f"&#36;{res['required_savings']:,.0f}/yr"
+                    + ("" if res["converged"] else " (capped)")
+                )
+                achieved_str = f"{res['achieved_prob']*100:.1f}%"
+                median_str = (
+                    f"&#36;{res['result']['median_at_retirement']/1e6:,.2f}M"
+                )
+
+                st.markdown(
+                    f"""
+                    <div class="becker-preview-card">
+                      <div class="becker-preview-name">{g.name}</div>
+                      <div class="becker-preview-dist">{required_str}</div>
+                      <div class="becker-preview-row">
+                        <div class="becker-preview-label">Plan</div>
+                        <div class="becker-preview-value" style="font-size:13px; font-weight:600;">{phase_desc}</div>
+                      </div>
+                      <div class="becker-preview-row">
+                        <div class="becker-preview-label">Achieved Success</div>
+                        <div class="becker-preview-value">{achieved_str}</div>
+                      </div>
+                      <div class="becker-preview-row">
+                        <div class="becker-preview-label">Median at Retirement</div>
+                        <div class="becker-preview-value">{median_str}</div>
+                      </div>
+                    </div>
+                    """,
                     unsafe_allow_html=True,
-                )
-                st.metric(
-                    "Required Savings",
-                    f"${res['required_savings']:,.0f}/yr",
-                )
-                st.metric(
-                    "Achieved Success",
-                    f"{res['achieved_prob']*100:.1f}%",
-                )
-                st.metric(
-                    "Median at Retirement",
-                    f"${res['result']['median_at_retirement']/1e6:,.2f}M",
                 )
                 if not res["converged"]:
                     st.warning(
