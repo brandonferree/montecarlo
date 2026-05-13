@@ -28,6 +28,7 @@ if _PARENT not in sys.path:
 from app import (  # noqa: E402
     # Brand
     GOLD_HEX, NAVY_HEX, NAVY_DARK_HEX, SCENARIO_COLOR_HEX,
+    MIDNIGHT_RGB, CANYON_RGB,
     # Engine — return assumptions
     PRESETS, ReturnAssumptions, HIST_STATS,
     # Engine — savings goal
@@ -274,7 +275,7 @@ def main():
             st.markdown(
                 f"<div style='color:{GOLD_HEX}; font-size:12px; font-weight:700; "
                 f"letter-spacing:0.5px; margin-top:6px; padding-top:6px; "
-                f"border-top:1px solid rgba(184,146,77,0.3);'>"
+                f"border-top:1px solid rgba({CANYON_RGB},0.3);'>"
                 f"INCOME TARGET</div>",
                 unsafe_allow_html=True,
             )
@@ -292,7 +293,7 @@ def main():
             st.markdown(
                 f"<div style='color:{GOLD_HEX}; font-size:12px; font-weight:700; "
                 f"letter-spacing:0.5px; margin-top:8px; padding-top:6px; "
-                f"border-top:1px solid rgba(184,146,77,0.3);'>"
+                f"border-top:1px solid rgba({CANYON_RGB},0.3);'>"
                 f"ALLOCATION</div>",
                 unsafe_allow_html=True,
             )
@@ -469,8 +470,8 @@ def main():
                 # iteration rendered plain white text on this page even though
                 # the same classes worked on the main page.
                 card_css = (
-                    f"background:rgba(31,58,95,0.30);"
-                    f"border:1px solid rgba(184,146,77,0.20);"
+                    f"background:rgba({MIDNIGHT_RGB},0.30);"
+                    f"border:1px solid rgba({CANYON_RGB},0.20);"
                     f"border-left:3px solid {GOLD_HEX};"
                     f"border-radius:3px;padding:14px 16px 10px;"
                     f"margin-bottom:10px;font-family:inherit;"
@@ -484,9 +485,9 @@ def main():
                     f"letter-spacing:0.3px;margin:4px 0 10px 0;line-height:1.2;"
                 )
                 row_css = (
-                    "display:flex;justify-content:space-between;"
-                    "align-items:baseline;gap:8px;padding:7px 0;"
-                    "border-top:1px solid rgba(184,146,77,0.18);"
+                    f"display:flex;justify-content:space-between;"
+                    f"align-items:baseline;gap:8px;padding:7px 0;"
+                    f"border-top:1px solid rgba({CANYON_RGB},0.18);"
                 )
                 label_css = (
                     "color:#B8C4D6;font-size:10.5px;font-weight:500;"
@@ -505,7 +506,7 @@ def main():
                     f"color:{GOLD_HEX};font-size:10px;font-weight:700;"
                     f"letter-spacing:1.2px;text-transform:uppercase;"
                     f"margin:14px 0 0 0;padding:8px 0 2px 0;"
-                    f"border-top:1px solid rgba(184,146,77,0.35);"
+                    f"border-top:1px solid rgba({CANYON_RGB},0.35);"
                 )
                 # Build one row per confidence level (70 / 80 / 90 by default).
                 sens_rows_html = ""
@@ -523,8 +524,8 @@ def main():
                     # white (not gold) — gold-on-gold-tint was washing out.
                     if conf_pct == target_pct:
                         row_extra += (
-                            "background:rgba(184,146,77,0.10);"
-                            "margin:0 -16px;padding-left:16px;padding-right:16px;"
+                            f"background:rgba({CANYON_RGB},0.10);"
+                            f"margin:0 -16px;padding-left:16px;padding-right:16px;"
                         )
                         label_extra += "color:white;"
                         val_extra = (

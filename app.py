@@ -31,17 +31,41 @@ from reportlab.lib.enums import TA_LEFT, TA_JUSTIFY
 
 
 # =============================================================================
-# Brand palette (shared between matplotlib and reportlab)
+# Brand palette — Becker Capital Management official identity
+# Sourced from BCM brand guidelines (anthropic-skills:bcm-branding).
+#
+# Official brand colors below; the legacy aliases (NAVY_HEX, GOLD_HEX, …)
+# preserve the existing call sites across CSS, matplotlib, and reportlab
+# without a sweeping rename. Note GOLD_HEX is now Canyon orange (#AD5E25),
+# NOT the previous warm gold (#B8924D) — the name is historical.
 # =============================================================================
-NAVY_HEX        = "#1F3A5F"
-NAVY_DARK_HEX   = "#152844"
-GOLD_HEX        = "#B8924D"
-TEAL_HEX        = "#3A8B8B"
-LIGHT_BG_HEX    = "#F2F2F2"
-ALT_BG_HEX      = "#FAFAFA"
-TEXT_DARK_HEX   = "#222222"
-TEXT_MED_HEX    = "#5A5A5A"
-RULE_GREY_HEX   = "#CCCCCC"
+# Official BCM palette
+MIDNIGHT_HEX      = "#0C2331"   # Dark backgrounds
+CHARCOAL_HEX      = "#2B2D24"   # Primary text on light bg
+LIGHT_GREY_HEX    = "#EEEEED"   # Light backgrounds, text on dark
+DARK_GREY_HEX     = "#8C8985"   # Secondary text / elements
+DEACTIVATED_HEX   = "#D5D8D9"   # Subtle backgrounds, rules, disabled
+DARK_WATER_HEX    = "#1D5D78"   # Primary accent (blue)
+ACTIVE_HEX        = "#41858F"   # Secondary accent (teal)
+CANYON_HEX        = "#AD5E25"   # Tertiary accent (orange / copper)
+
+# RGB-tuple strings — for use inside rgba() expressions where the legacy
+# hardcoded "184,146,77" / "31,58,95" tuples once lived. Updating the hex
+# above automatically threads through every rgba(...) site that uses these.
+MIDNIGHT_RGB      = "12,35,49"
+CANYON_RGB        = "173,94,37"
+DARK_WATER_RGB    = "29,93,120"
+
+# Legacy aliases — used pervasively across CSS / matplotlib / reportlab.
+NAVY_HEX        = MIDNIGHT_HEX
+NAVY_DARK_HEX   = "#061520"          # Slightly darker than Midnight (for the header gradient)
+GOLD_HEX        = CANYON_HEX         # ⚠ Canyon orange, not actually gold
+TEAL_HEX        = ACTIVE_HEX
+LIGHT_BG_HEX    = LIGHT_GREY_HEX
+ALT_BG_HEX      = "#F8F8F7"          # Soft tint between LIGHT_GREY and white
+TEXT_DARK_HEX   = CHARCOAL_HEX
+TEXT_MED_HEX    = DARK_GREY_HEX
+RULE_GREY_HEX   = DEACTIVATED_HEX
 
 NAVY        = colors.HexColor(NAVY_HEX)
 NAVY_DARK   = colors.HexColor(NAVY_DARK_HEX)
@@ -53,7 +77,9 @@ TEXT_DARK   = colors.HexColor(TEXT_DARK_HEX)
 TEXT_MED    = colors.HexColor(TEXT_MED_HEX)
 RULE_GREY   = colors.HexColor(RULE_GREY_HEX)
 
-SCENARIO_COLOR_HEX = [NAVY_HEX, TEAL_HEX, GOLD_HEX]
+# Scenario rotation — the three official BCM accents in order
+# (Dark Water → Active → Canyon = blue → teal → orange).
+SCENARIO_COLOR_HEX = [DARK_WATER_HEX, ACTIVE_HEX, CANYON_HEX]
 
 
 # =============================================================================
@@ -2415,9 +2441,9 @@ def build_savings_goal_pdf(
         ["Allocation"]
         + [_alloc_str_goal(r["goal"]) for r in goal_results],
         [f"<b>Required Annual Savings</b><br/>"
-         f"<font size='8' color='#5A5A5A'>(to hit "
+         f"<font size='8' color='{TEXT_MED_HEX}'>(to hit "
          f"{int(target_success_prob*100)}% target)</font>"]
-        + [f"<b><font color='#1F3A5F' size='13'>"
+        + [f"<b><font color='{NAVY_HEX}' size='13'>"
            f"${r['annual_savings']:,.0f}</font></b>" for r in goal_results],
         ["Achieved Success Probability"]
         + [f"{r['success_prob']*100:.1f}%" for r in goal_results],
@@ -2820,7 +2846,7 @@ def _inject_becker_css():
             font-family: Georgia, serif;
             font-size: 48px;
             font-weight: 900;
-            color: rgba(184, 146, 77, 0.35);
+            color: rgba({CANYON_RGB}, 0.35);
             letter-spacing: -3px;
         }}
         .becker-monogram .b-circle {{
@@ -2865,7 +2891,7 @@ def _inject_becker_css():
 
         /* Scenario card headers */
         .becker-scenario-card {{
-            background: rgba(31, 58, 95, 0.45);
+            background: rgba({MIDNIGHT_RGB}, 0.45);
             border-left: 4px solid var(--scenario-color);
             border-radius: 3px;
             padding: 10px 14px;
@@ -2882,8 +2908,8 @@ def _inject_becker_css():
            - Font / size / weight stay consistent across every row
            - The distribution-amount line is visually prominent in gold */
         .becker-preview-card {{
-            background: rgba(31, 58, 95, 0.30);
-            border: 1px solid rgba(184, 146, 77, 0.20);
+            background: rgba({MIDNIGHT_RGB}, 0.30);
+            border: 1px solid rgba({CANYON_RGB}, 0.20);
             border-left: 3px solid {GOLD_HEX};
             border-radius: 3px;
             padding: 14px 16px 10px;
@@ -2911,7 +2937,7 @@ def _inject_becker_css():
             align-items: baseline;
             gap: 8px;
             padding: 7px 0;
-            border-top: 1px solid rgba(184, 146, 77, 0.18);
+            border-top: 1px solid rgba({CANYON_RGB}, 0.18);
         }}
         .becker-preview-label {{
             color: #B8C4D6;
@@ -2933,7 +2959,7 @@ def _inject_becker_css():
         .becker-footer {{
             margin-top: 32px;
             padding: 14px 0;
-            border-top: 1px solid rgba(184, 146, 77, 0.3);
+            border-top: 1px solid rgba({CANYON_RGB}, 0.3);
             color: #8A99B0;
             font-size: 11px;
             text-align: center;
@@ -3169,7 +3195,7 @@ def main():
             st.markdown(
                 f"<div style='color:{GOLD_HEX}; font-size:12px; font-weight:700; "
                 f"letter-spacing:0.5px; margin-top:8px; padding-top:6px; "
-                f"border-top:1px solid rgba(184,146,77,0.3);'>"
+                f"border-top:1px solid rgba({CANYON_RGB},0.3);'>"
                 f"CONTRIBUTION PHASE (OPTIONAL)</div>",
                 unsafe_allow_html=True,
             )
@@ -3197,7 +3223,7 @@ def main():
             st.markdown(
                 f"<div style='color:{GOLD_HEX}; font-size:12px; font-weight:700; "
                 f"letter-spacing:0.5px; margin-top:10px; padding-top:6px; "
-                f"border-top:1px solid rgba(184,146,77,0.3);'>"
+                f"border-top:1px solid rgba({CANYON_RGB},0.3);'>"
                 f"DISTRIBUTION PHASE{dist_label_suffix.upper()}</div>",
                 unsafe_allow_html=True,
             )
@@ -3226,7 +3252,7 @@ def main():
             st.markdown(
                 f"<div style='color:{GOLD_HEX}; font-size:12px; font-weight:700; "
                 f"letter-spacing:0.5px; margin-top:10px; padding-top:6px; "
-                f"border-top:1px solid rgba(184,146,77,0.3);'>"
+                f"border-top:1px solid rgba({CANYON_RGB},0.3);'>"
                 f"GLIDE PATH (OPTIONAL)</div>",
                 unsafe_allow_html=True,
             )
