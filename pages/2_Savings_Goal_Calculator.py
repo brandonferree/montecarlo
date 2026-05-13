@@ -426,10 +426,6 @@ def main():
             "value at that level, plus the same answer at 70/80/90% "
             "confidence for comparison."
         )
-        # Target probability the user selected on the sidebar — used below to
-        # subtly highlight the matching confidence row (if it happens to be
-        # 70/80/90; otherwise no row is highlighted).
-        target_pct = int(round(snapshot["target_success_prob"] * 100))
         conf_levels_pct = [
             int(round(c * 100)) for c in snapshot["confidence_levels"]
         ]
@@ -509,33 +505,20 @@ def main():
                     f"border-top:1px solid rgba({CANYON_RGB},0.35);"
                 )
                 # Build one row per confidence level (70 / 80 / 90 by default).
+                # All rows formatted identically — the headline number at the
+                # top of the card already shows the answer at the user's target
+                # confidence, so an extra row-level highlight is redundant.
+                sens_val_css = value_css + "font-size:15px;"
                 sens_rows_html = ""
                 for s, conf_pct in zip(sens, conf_levels_pct):
                     sens_val = (
                         f"&#36;{s['required_savings']:,.0f}/yr"
                         + ("" if s["converged"] else " (capped)")
                     )
-                    row_extra = row_css
-                    val_extra = value_css + "font-size:15px;"
-                    label_extra = label_css
-                    # If this row's confidence matches the user's target, give
-                    # it a subtle highlight so it's visually tied to the
-                    # headline number at the top of the card. Text switches to
-                    # white (not gold) — gold-on-gold-tint was washing out.
-                    if conf_pct == target_pct:
-                        row_extra += (
-                            f"background:rgba({CANYON_RGB},0.10);"
-                            f"margin:0 -16px;padding-left:16px;padding-right:16px;"
-                        )
-                        label_extra += "color:white;"
-                        val_extra = (
-                            "color:white;font-size:15px;font-weight:700;"
-                            "font-variant-numeric:tabular-nums;text-align:right;"
-                        )
                     sens_rows_html += (
-                        f'<div class="becker-preview-row" style="{row_extra}">'
-                        f'<div class="becker-preview-label" style="{label_extra}">{conf_pct}% Confidence</div>'
-                        f'<div class="becker-preview-value" style="{val_extra}">{sens_val}</div>'
+                        f'<div class="becker-preview-row" style="{row_css}">'
+                        f'<div class="becker-preview-label" style="{label_css}">{conf_pct}% Confidence</div>'
+                        f'<div class="becker-preview-value" style="{sens_val_css}">{sens_val}</div>'
                         f'</div>'
                     )
 
