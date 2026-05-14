@@ -31,7 +31,7 @@ from app import (  # noqa: E402
     GOLD_HEX, NAVY_HEX, NAVY_DARK_HEX, SCENARIO_COLOR_HEX,
     MIDNIGHT_RGB, CANYON_RGB,
     # Engine — return assumptions
-    PRESETS, ReturnAssumptions, HIST_STATS,
+    PRESETS, ReturnAssumptions,
     # Engine — savings goal
     SavingsGoalScenario,
     find_required_annual_savings,
@@ -69,105 +69,53 @@ def _render_savings_header():
 
 def _return_assumptions_picker() -> ReturnAssumptions:
     """
-    Mirror of the return-assumptions picker on the main page. Kept
-    inline rather than imported because it's tightly coupled to
-    Streamlit widget state (and the main page's version contains
-    main-page-specific session keys).
+    Mirror of the return-assumptions picker on the main page. Forward-looking
+    μ/σ are sourced from BCM's 2026 Capital Market Assumptions; the engine
+    runs a parametric (normal-distribution) Monte Carlo.
     """
-    method = st.radio(
-        "Method",
-        ["Bootstrap (recommended)", "Parametric (normal distribution)"],
-        index=0,
-        help=(
-            "Bootstrap resamples actual historical years (1928–2024) and "
-            "re-centers them to your forward-looking mean — preserving real-"
-            "world volatility, fat tails, and the equity/fixed-income "
-            "correlation. Parametric draws from a normal distribution."
-        ),
-        key="sg_method",
+    st.caption(
+        "Forward-looking μ and σ are sourced from Becker Capital "
+        "Management's 2026 Capital Market Assumptions (10-year estimates)."
     )
 
-    if method.startswith("Bootstrap"):
-        preset_choice = st.selectbox(
-            "Preset",
-            ["Forward-looking (Aggressive): 9.5% / 4.5%",
-             "Forward-looking (Moderate): 8% / 4.5%",
-             "Forward-looking (Conservative): 7% / 4%",
-             "Historical means (1928–2024)",
-             "Custom forward-looking μ"],
-            index=1,
-            key="sg_boot_preset",
-        )
-        if preset_choice.startswith("Forward-looking (Aggressive)"):
-            ra = PRESETS["Bootstrap — Forward-looking (Aggressive)"]
-        elif preset_choice.startswith("Forward-looking (Moderate)"):
-            ra = PRESETS["Bootstrap — Forward-looking (Moderate)"]
-        elif preset_choice.startswith("Forward-looking (Conservative)"):
-            ra = PRESETS["Bootstrap — Forward-looking (Conservative)"]
-        elif preset_choice.startswith("Historical"):
-            ra = PRESETS["Bootstrap — Historical means (1928–2024)"]
-        else:
-            colA, colB = st.columns(2)
-            with colA:
-                st.caption("**Equity**")
-                eq_mu = st.number_input(
-                    "Forward μ (%)", value=8.0, step=0.25,
-                    min_value=0.0, max_value=20.0, key="sg_boot_eq_mu",
-                ) / 100
-            with colB:
-                st.caption("**Fixed Income**")
-                fi_mu = st.number_input(
-                    "Forward μ (%)", value=4.5, step=0.25,
-                    min_value=0.0, max_value=12.0, key="sg_boot_fi_mu",
-                ) / 100
-            ra = ReturnAssumptions(
-                eq_mu=eq_mu, eq_sigma=HIST_STATS["eq_sigma"],
-                fi_mu=fi_mu, fi_sigma=HIST_STATS["fi_sigma"],
-                label=f"Bootstrap • Custom (μ={eq_mu*100:.1f}%/{fi_mu*100:.1f}%)",
-                method="bootstrap", historical_period="1928–2024",
-                worst_eq=HIST_STATS["worst_eq"],
-                worst_fi=HIST_STATS["worst_fi"],
-            )
-        st.caption(
-            f"**Forward μ:** Eq {ra.eq_mu*100:.2f}% • FI {ra.fi_mu*100:.2f}%  \n"
-            f"**Historical σ (preserved):** Eq {HIST_STATS['eq_sigma']*100:.2f}% • "
-            f"FI {HIST_STATS['fi_sigma']*100:.2f}%"
-        )
+    preset_choice = st.selectbox(
+        "Preset",
+        ["BCM 2026 — Conservative (Large Cap + Short-Term Bonds)",
+         "BCM 2026 — Moderate (Large Cap + Intermediate Bonds)",
+         "BCM 2026 — Aggressive (Small Cap + High Yield)",
+         "Custom"],
+        index=1,  # Moderate default
+        key="sg_preset",
+    )
+    if preset_choice.startswith("BCM 2026 — Conservative"):
+        ra = PRESETS["BCM 2026 — Conservative"]
+    elif preset_choice.startswith("BCM 2026 — Moderate"):
+        ra = PRESETS["BCM 2026 — Moderate"]
+    elif preset_choice.startswith("BCM 2026 — Aggressive"):
+        ra = PRESETS["BCM 2026 — Aggressive"]
     else:
-        param_choice = st.selectbox(
-            "Preset",
-            ["1960–2024 (Legacy Becker)",
-             "Forward-looking Conservative (8%/4.5%)",
-             "Custom"],
-            index=0, key="sg_param_preset",
+        colA, colB = st.columns(2)
+        with colA:
+            st.caption("**Equity**")
+            eq_mu = st.number_input("Mean (%)", value=6.00, step=0.1,
+                                    key="sg_par_eq_mu") / 100
+            eq_sig = st.number_input("Std Dev (%)", value=17.00, step=0.1,
+                                     key="sg_par_eq_sig") / 100
+        with colB:
+            st.caption("**Fixed Income**")
+            fi_mu = st.number_input("Mean (%)", value=5.00, step=0.1,
+                                    key="sg_par_fi_mu") / 100
+            fi_sig = st.number_input("Std Dev (%)", value=5.50, step=0.1,
+                                     key="sg_par_fi_sig") / 100
+        ra = ReturnAssumptions(
+            eq_mu=eq_mu, eq_sigma=eq_sig,
+            fi_mu=fi_mu, fi_sigma=fi_sig,
+            label="Custom Parametric", method="parametric",
         )
-        if param_choice == "1960–2024 (Legacy Becker)":
-            ra = PRESETS["Parametric — 1960–2024 (Legacy Becker)"]
-        elif param_choice.startswith("Forward-looking"):
-            ra = PRESETS["Parametric — Forward-looking (Conservative)"]
-        else:
-            colA, colB = st.columns(2)
-            with colA:
-                st.caption("**Equity**")
-                eq_mu = st.number_input("Mean (%)", value=11.79, step=0.1,
-                                        key="sg_par_eq_mu") / 100
-                eq_sig = st.number_input("Std Dev (%)", value=16.67, step=0.1,
-                                         key="sg_par_eq_sig") / 100
-            with colB:
-                st.caption("**Fixed Income**")
-                fi_mu = st.number_input("Mean (%)", value=6.15, step=0.1,
-                                        key="sg_par_fi_mu") / 100
-                fi_sig = st.number_input("Std Dev (%)", value=8.79, step=0.1,
-                                         key="sg_par_fi_sig") / 100
-            ra = ReturnAssumptions(
-                eq_mu=eq_mu, eq_sigma=eq_sig,
-                fi_mu=fi_mu, fi_sigma=fi_sig,
-                label="Parametric • Custom", method="parametric",
-            )
-        st.caption(
-            f"Eq μ = {ra.eq_mu*100:.2f}%, σ = {ra.eq_sigma*100:.2f}%  |  "
-            f"FI μ = {ra.fi_mu*100:.2f}%, σ = {ra.fi_sigma*100:.2f}%"
-        )
+    st.caption(
+        f"Eq μ = {ra.eq_mu*100:.2f}%, σ = {ra.eq_sigma*100:.2f}%  |  "
+        f"FI μ = {ra.fi_mu*100:.2f}%, σ = {ra.fi_sigma*100:.2f}%"
+    )
     return ra
 
 

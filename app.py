@@ -153,23 +153,25 @@ class ReturnAssumptions:
     """
     Return-generation specification.
 
-    Two methods supported:
-      - method="parametric": draw N(mu, sigma) each period, asset classes independent.
-      - method="bootstrap": resample matched historical (eq, fi) year pairs,
-                            re-centered so the sample mean equals (eq_mu, fi_mu).
+    Method is now always "parametric" — draw N(mu, sigma) each period, asset
+    classes independent. The legacy bootstrap branch in simulate_scenario is
+    retained as dead code for now (no UI surfaces it; will be removed in a
+    follow-up sweep along with HISTORICAL_RETURNS_1928_2024 / HIST_STATS).
 
-    eq_mu / fi_mu always represent the *forward-looking expected annual return*.
-    eq_sigma / fi_sigma are only used when method="parametric"; in bootstrap mode
-    the historical volatility, skew, and equity/FI correlation are preserved
-    automatically through resampling.
+    eq_mu / fi_mu are the forward-looking expected annual returns. These are
+    sourced from Becker Capital Management's published Capital Market
+    Assumptions (BCM 2026 10-year estimates) — see BCM_CMA_2026 below.
+
+    historical_period / worst_eq / worst_fi survive as dataclass fields because
+    PDF builder code still reads them when labelling assumption tables.
     """
     eq_mu: float
     eq_sigma: float
     fi_mu: float
     fi_sigma: float
     label: str
-    method: str = "bootstrap"            # "bootstrap" | "parametric"
-    historical_period: str = "1928–2024" # used only for bootstrap labelling
+    method: str = "parametric"           # historically "bootstrap" | "parametric"
+    historical_period: str = "1928–2024" # PDF labelling only
     worst_eq: float = -0.4384
     worst_fi: float = -0.1777
 
@@ -224,55 +226,54 @@ class SimInputs:
     seed: int = 20260501
 
 
-# Preset packages — bootstrap mode uses forward-looking expected returns
-# while preserving the historical volatility, skew, and correlation structure
-# from the 1928–2024 series.
+# =============================================================================
+# BCM 2026 Capital Market Assumptions (10-year estimates)
+# Source: Becker Capital Management, Inc. — "2026 CMAs.pdf"
+# All values are annual decimals: (mu, sigma).
+#
+# Used to build the three sidebar presets (Conservative / Moderate /
+# Aggressive). Three asset classes from each side are exposed below — they're
+# kept as a small lookup dict rather than the full 19-asset CMA table because
+# the engine only models two buckets (Equity, Fixed Income) and the presets
+# pick a single equity class + a single FI class per risk tier.
+# =============================================================================
+BCM_CMA_2026 = {
+    # Equity
+    "EQ_US_LARGE":    (0.0600, 0.1700),  # Russell 1000
+    "EQ_US_SMALL":    (0.0925, 0.2250),  # Russell 2000
+    # Fixed Income
+    "FI_ST_US":       (0.0380, 0.0250),  # Short-Term U.S. Corp & Govt (1-5Y)
+    "FI_IT_US":       (0.0500, 0.0550),  # Intermediate-Term U.S. (5-10Y)
+    "FI_HY":          (0.0575, 0.1200),  # High Yield
+}
+
+
+def _bcm_preset(label: str, eq_key: str, fi_key: str) -> ReturnAssumptions:
+    """Build a parametric ReturnAssumptions from two BCM_CMA_2026 entries."""
+    eq_mu, eq_sigma = BCM_CMA_2026[eq_key]
+    fi_mu, fi_sigma = BCM_CMA_2026[fi_key]
+    return ReturnAssumptions(
+        eq_mu=eq_mu, eq_sigma=eq_sigma,
+        fi_mu=fi_mu, fi_sigma=fi_sigma,
+        label=label,
+        method="parametric",
+    )
+
+
+# Three risk-tiered presets, each sourced from BCM's 2026 10-year CMAs.
+# Moderate is the user-selected default (Large Cap + Intermediate Bonds).
 PRESETS = {
-    "Bootstrap — Forward-looking (Aggressive)": ReturnAssumptions(
-        eq_mu=0.0950, eq_sigma=HIST_STATS["eq_sigma"],
-        fi_mu=0.0450, fi_sigma=HIST_STATS["fi_sigma"],
-        label="Bootstrap • Forward-Looking Aggressive",
-        method="bootstrap",
-        historical_period="1928–2024",
-        worst_eq=HIST_STATS["worst_eq"], worst_fi=HIST_STATS["worst_fi"],
+    "BCM 2026 — Conservative": _bcm_preset(
+        "BCM 2026 • Conservative (Large Cap + Short-Term Bonds)",
+        eq_key="EQ_US_LARGE", fi_key="FI_ST_US",
     ),
-    "Bootstrap — Forward-looking (Moderate)": ReturnAssumptions(
-        eq_mu=0.0800, eq_sigma=HIST_STATS["eq_sigma"],
-        fi_mu=0.0450, fi_sigma=HIST_STATS["fi_sigma"],
-        label="Bootstrap • Forward-Looking Moderate",
-        method="bootstrap",
-        historical_period="1928–2024",
-        worst_eq=HIST_STATS["worst_eq"], worst_fi=HIST_STATS["worst_fi"],
+    "BCM 2026 — Moderate":     _bcm_preset(
+        "BCM 2026 • Moderate (Large Cap + Intermediate Bonds)",
+        eq_key="EQ_US_LARGE", fi_key="FI_IT_US",
     ),
-    "Bootstrap — Forward-looking (Conservative)": ReturnAssumptions(
-        eq_mu=0.0700, eq_sigma=HIST_STATS["eq_sigma"],
-        fi_mu=0.0400, fi_sigma=HIST_STATS["fi_sigma"],
-        label="Bootstrap • Forward-Looking Conservative",
-        method="bootstrap",
-        historical_period="1928–2024",
-        worst_eq=HIST_STATS["worst_eq"], worst_fi=HIST_STATS["worst_fi"],
-    ),
-    "Bootstrap — Historical means (1928–2024)": ReturnAssumptions(
-        eq_mu=HIST_STATS["eq_mu"], eq_sigma=HIST_STATS["eq_sigma"],
-        fi_mu=HIST_STATS["fi_mu"], fi_sigma=HIST_STATS["fi_sigma"],
-        label="Bootstrap • Historical 1928–2024",
-        method="bootstrap",
-        historical_period="1928–2024",
-        worst_eq=HIST_STATS["worst_eq"], worst_fi=HIST_STATS["worst_fi"],
-    ),
-    "Parametric — 1960–2024 (Legacy Becker)": ReturnAssumptions(
-        eq_mu=0.1179, eq_sigma=0.1667,
-        fi_mu=0.0615, fi_sigma=0.0879,
-        label="Parametric • 1960–2024",
-        method="parametric",
-        worst_eq=-0.370, worst_fi=-0.131,
-    ),
-    "Parametric — Forward-looking (Conservative)": ReturnAssumptions(
-        eq_mu=0.0800, eq_sigma=0.1500,
-        fi_mu=0.0450, fi_sigma=0.0700,
-        label="Parametric • Forward-Looking",
-        method="parametric",
-        worst_eq=-0.370, worst_fi=-0.131,
+    "BCM 2026 — Aggressive":   _bcm_preset(
+        "BCM 2026 • Aggressive (Small Cap + High Yield)",
+        eq_key="EQ_US_SMALL", fi_key="FI_HY",
     ),
 }
 
@@ -3056,108 +3057,54 @@ def main():
 
         st.divider()
         st.subheader("Return Assumptions")
-
-        method = st.radio(
-            "Method",
-            ["Bootstrap (recommended)", "Parametric (normal distribution)"],
-            index=0,
-            help=(
-                "Bootstrap resamples actual historical years (1928–2024) and "
-                "re-centers them to your forward-looking mean — preserving real-"
-                "world volatility, fat tails, and the equity/fixed-income "
-                "correlation. Parametric draws from a normal distribution, which "
-                "is faster but understates downside risk."
-            ),
+        st.caption(
+            "Forward-looking μ and σ are sourced from Becker Capital "
+            "Management's published 2026 Capital Market Assumptions "
+            "(10-year estimates). All scenarios use a parametric "
+            "(normal-distribution) Monte Carlo."
         )
 
-        if method.startswith("Bootstrap"):
-            preset_choice = st.selectbox(
-                "Preset",
-                ["Forward-looking (Aggressive): 9.5% / 4.5%",
-                 "Forward-looking (Moderate): 8% / 4.5%",
-                 "Forward-looking (Conservative): 7% / 4%",
-                 "Historical means (1928–2024): 11.87% / 4.89%",
-                 "Custom forward-looking μ"],
-                index=1,
-            )
-            if preset_choice.startswith("Forward-looking (Aggressive)"):
-                ra = PRESETS["Bootstrap — Forward-looking (Aggressive)"]
-            elif preset_choice.startswith("Forward-looking (Moderate)"):
-                ra = PRESETS["Bootstrap — Forward-looking (Moderate)"]
-            elif preset_choice.startswith("Forward-looking (Conservative)"):
-                ra = PRESETS["Bootstrap — Forward-looking (Conservative)"]
-            elif preset_choice.startswith("Historical means"):
-                ra = PRESETS["Bootstrap — Historical means (1928–2024)"]
-            else:
-                # Custom forward-looking
-                colA, colB = st.columns(2)
-                with colA:
-                    st.caption("**Equity**")
-                    eq_mu_in = st.number_input(
-                        "Forward μ (%)", value=8.0, step=0.25,
-                        min_value=0.0, max_value=20.0, key="boot_eq_mu",
-                    ) / 100
-                with colB:
-                    st.caption("**Fixed Income**")
-                    fi_mu_in = st.number_input(
-                        "Forward μ (%)", value=4.5, step=0.25,
-                        min_value=0.0, max_value=12.0, key="boot_fi_mu",
-                    ) / 100
-                ra = ReturnAssumptions(
-                    eq_mu=eq_mu_in,
-                    eq_sigma=HIST_STATS["eq_sigma"],
-                    fi_mu=fi_mu_in,
-                    fi_sigma=HIST_STATS["fi_sigma"],
-                    label=f"Bootstrap • Custom (μ={eq_mu_in*100:.1f}%/{fi_mu_in*100:.1f}%)",
-                    method="bootstrap",
-                    historical_period="1928–2024",
-                    worst_eq=HIST_STATS["worst_eq"],
-                    worst_fi=HIST_STATS["worst_fi"],
-                )
-            st.caption(
-                f"**Forward μ:** Eq {ra.eq_mu*100:.2f}% • FI {ra.fi_mu*100:.2f}%  \n"
-                f"**Historical σ (preserved):** Eq {HIST_STATS['eq_sigma']*100:.2f}% • "
-                f"FI {HIST_STATS['fi_sigma']*100:.2f}%  \n"
-                f"**Eq/FI ρ (preserved):** {HIST_STATS['correlation']:.3f}  \n"
-                f"**Worst historical year:** Eq {HIST_STATS['worst_eq']*100:.1f}% • "
-                f"FI {HIST_STATS['worst_fi']*100:.1f}%"
-            )
+        preset_choice = st.selectbox(
+            "Preset",
+            ["BCM 2026 — Conservative (Large Cap + Short-Term Bonds)",
+             "BCM 2026 — Moderate (Large Cap + Intermediate Bonds)",
+             "BCM 2026 — Aggressive (Small Cap + High Yield)",
+             "Custom"],
+            index=1,  # Moderate default
+        )
+        if preset_choice.startswith("BCM 2026 — Conservative"):
+            ra = PRESETS["BCM 2026 — Conservative"]
+        elif preset_choice.startswith("BCM 2026 — Moderate"):
+            ra = PRESETS["BCM 2026 — Moderate"]
+        elif preset_choice.startswith("BCM 2026 — Aggressive"):
+            ra = PRESETS["BCM 2026 — Aggressive"]
         else:
-            # Parametric mode — keep legacy presets
-            param_choice = st.selectbox(
-                "Preset",
-                ["1960–2024 (Legacy Becker)",
-                 "Forward-looking Conservative (8%/4.5%)",
-                 "Custom"],
-                index=0,
+            colA, colB = st.columns(2)
+            with colA:
+                st.caption("**Equity**")
+                eq_mu_in = st.number_input(
+                    "Mean (%)", value=6.00, step=0.1,
+                    key="param_eq_mu") / 100
+                eq_sig_in = st.number_input(
+                    "Std Dev (%)", value=17.00, step=0.1,
+                    key="param_eq_sig") / 100
+            with colB:
+                st.caption("**Fixed Income**")
+                fi_mu_in = st.number_input(
+                    "Mean (%)", value=5.00, step=0.1,
+                    key="param_fi_mu") / 100
+                fi_sig_in = st.number_input(
+                    "Std Dev (%)", value=5.50, step=0.1,
+                    key="param_fi_sig") / 100
+            ra = ReturnAssumptions(
+                eq_mu=eq_mu_in, eq_sigma=eq_sig_in,
+                fi_mu=fi_mu_in, fi_sigma=fi_sig_in,
+                label="Custom Parametric", method="parametric",
             )
-            if param_choice == "1960–2024 (Legacy Becker)":
-                ra = PRESETS["Parametric — 1960–2024 (Legacy Becker)"]
-            elif param_choice.startswith("Forward-looking"):
-                ra = PRESETS["Parametric — Forward-looking (Conservative)"]
-            else:
-                colA, colB = st.columns(2)
-                with colA:
-                    st.caption("**Equity**")
-                    eq_mu_in = st.number_input("Mean (%)", value=11.79, step=0.1,
-                                            key="param_eq_mu") / 100
-                    eq_sig_in = st.number_input("Std Dev (%)", value=16.67, step=0.1,
-                                             key="param_eq_sig") / 100
-                with colB:
-                    st.caption("**Fixed Income**")
-                    fi_mu_in = st.number_input("Mean (%)", value=6.15, step=0.1,
-                                            key="param_fi_mu") / 100
-                    fi_sig_in = st.number_input("Std Dev (%)", value=8.79, step=0.1,
-                                             key="param_fi_sig") / 100
-                ra = ReturnAssumptions(
-                    eq_mu=eq_mu_in, eq_sigma=eq_sig_in,
-                    fi_mu=fi_mu_in, fi_sigma=fi_sig_in,
-                    label="Parametric • Custom", method="parametric",
-                )
-            st.caption(
-                f"Eq μ = {ra.eq_mu*100:.2f}%, σ = {ra.eq_sigma*100:.2f}%  |  "
-                f"FI μ = {ra.fi_mu*100:.2f}%, σ = {ra.fi_sigma*100:.2f}%"
-            )
+        st.caption(
+            f"Eq μ = {ra.eq_mu*100:.2f}%, σ = {ra.eq_sigma*100:.2f}%  |  "
+            f"FI μ = {ra.fi_mu*100:.2f}%, σ = {ra.fi_sigma*100:.2f}%"
+        )
 
         st.divider()
         st.subheader("Simulation")
