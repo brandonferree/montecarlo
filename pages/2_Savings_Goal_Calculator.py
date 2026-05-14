@@ -31,7 +31,7 @@ from app import (  # noqa: E402
     GOLD_HEX, NAVY_HEX, NAVY_DARK_HEX, SCENARIO_COLOR_HEX,
     MIDNIGHT_RGB, CANYON_RGB,
     # Engine — return assumptions
-    PRESETS, ReturnAssumptions,
+    BCM_CMA_2026, ReturnAssumptions,
     # Engine — savings goal
     SavingsGoalScenario,
     find_required_annual_savings,
@@ -84,7 +84,17 @@ def _return_assumptions_picker() -> ReturnAssumptions:
         key="sg_preset",
     )
     if preset_choice == "BCM 2026 CMAs":
-        ra = PRESETS["BCM 2026 CMAs"]
+        # Construct the preset inline from BCM_CMA_2026 rather than reading
+        # from app.PRESETS. This avoids stale-import KeyErrors on Streamlit
+        # Cloud when sys.modules['app'] is cached from a previous deploy
+        # where PRESETS had different keys.
+        eq_mu, eq_sigma = BCM_CMA_2026["EQ_US_LARGE"]
+        fi_mu, fi_sigma = BCM_CMA_2026["FI_IT_US"]
+        ra = ReturnAssumptions(
+            eq_mu=eq_mu, eq_sigma=eq_sigma,
+            fi_mu=fi_mu, fi_sigma=fi_sigma,
+            label="BCM 2026 CMAs (Large Cap + Intermediate Bonds)",
+        )
     else:
         colA, colB = st.columns(2)
         with colA:
