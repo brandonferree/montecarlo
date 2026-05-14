@@ -459,6 +459,15 @@ def main():
                 median_str = (
                     f"&#36;{res['result']['median_at_retirement']/1e6:,.2f}M"
                 )
+                # Mirrors the two headline risk metrics from the main Monte
+                # Carlo page. p_above_retirement compares each path's final
+                # balance against THAT path's retirement-start balance — i.e.,
+                # "did retirement preserve the accumulation endpoint", not
+                # "did it beat the starting deposit".
+                p_ruin_str = f"{res['result']['p_ruin']*100:.2f}%"
+                p_above_ret_str = (
+                    f"{res['result']['p_above_retirement']*100:.1f}%"
+                )
 
                 # Inline styles back up the .becker-preview-* classes in
                 # _inject_becker_css(). Belt-and-suspenders against any
@@ -539,6 +548,14 @@ def main():
                     f'<div class="becker-preview-row" style="{row_css}">'
                     f'<div class="becker-preview-label" style="{label_css}">Median at Retirement</div>'
                     f'<div class="becker-preview-value" style="{value_css}">{median_str}</div>'
+                    f'</div>'
+                    f'<div class="becker-preview-row" style="{row_css}">'
+                    f'<div class="becker-preview-label" style="{label_css}">Probability of Ruin</div>'
+                    f'<div class="becker-preview-value" style="{value_css}">{p_ruin_str}</div>'
+                    f'</div>'
+                    f'<div class="becker-preview-row" style="{row_css}">'
+                    f'<div class="becker-preview-label" style="{label_css}">P(End &gt; Retirement Start)</div>'
+                    f'<div class="becker-preview-value" style="{value_css}">{p_above_ret_str}</div>'
                     f'</div>'
                     f'<div style="{sens_header_css}">Required Savings by Confidence</div>'
                     f'{sens_rows_html}'
