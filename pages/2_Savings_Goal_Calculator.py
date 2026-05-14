@@ -179,6 +179,20 @@ def main():
     _inject_becker_css()
     _render_savings_header()
 
+    # Invalidate any stale session-state results carried over from an older
+    # deploy. The version tag is bumped whenever simulate_goal_scenario adds
+    # a new field that the renderer expects; without this guard the page
+    # crashes (or shows "—") on first load after a deploy with no input
+    # change to trigger a recompute. The cache_data bump on the same key
+    # handles the cache layer; this handles the session-state layer.
+    _CURRENT_SCHEMA_VERSION = "v2-p_above_retirement"
+    if (st.session_state.get("sg_schema_version")
+            != _CURRENT_SCHEMA_VERSION):
+        for k in ("sg_results", "sg_sensitivity", "sg_inputs_snapshot",
+                  "sg_pdf_bytes", "sg_pdf_filename"):
+            st.session_state.pop(k, None)
+        st.session_state["sg_schema_version"] = _CURRENT_SCHEMA_VERSION
+
     # ----- Sidebar: shared inputs -----
     with st.sidebar:
         st.header("Plan Inputs")
@@ -570,7 +584,7 @@ def main():
                     f'<div class="becker-preview-value" style="{value_css}">{p_ruin_str}</div>'
                     f'</div>'
                     f'<div class="becker-preview-row" style="{row_css}">'
-                    f'<div class="becker-preview-label" style="{label_css}">P(End &gt; Retirement Start)</div>'
+                    f'<div class="becker-preview-label" style="{label_css}">P(Value End &gt; Value Retirement Start)</div>'
                     f'<div class="becker-preview-value" style="{value_css}">{p_above_ret_str}</div>'
                     f'</div>'
                     f'<div style="{sens_header_css}">Required Savings by Confidence</div>'
