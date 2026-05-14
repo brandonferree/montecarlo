@@ -1,11 +1,11 @@
 """
 Becker Capital — Savings Goal Calculator
 
-Inverse Monte Carlo: given a desired retirement income, time horizon, and
+Inverse simulation: given a desired retirement income, time horizon, and
 allocation, compute the minimum annual savings required to support that
 income with a chosen target probability of success.
 
-This page lives alongside the main Monte Carlo Distribution simulator
+This page lives alongside the main Cashflow Portfolio Analysis simulator
 (app.py) in a Streamlit multipage app. It imports the engine + UI helpers
 from app.py rather than duplicating them.
 """
@@ -355,7 +355,7 @@ def main():
         n_sols = n_scen * 4
         approx_sims = n_sols * 14
         with st.spinner(
-            f"Running ~{approx_sims:,} Monte Carlo simulations across "
+            f"Running ~{approx_sims:,} simulations across "
             f"{n_sols} bisection searches… (this can take 20–60 seconds)"
         ):
             results, sensitivity = _solve_all(
@@ -546,7 +546,7 @@ def main():
         # ----- Lifecycle chart (same renderer used in the PDF report) -----
         # Visualizes the median portfolio path across both phases for each
         # scenario at the required-savings level, with 20th–80th percentile
-        # bands shaded. Mirrors the path chart on the main Monte Carlo page.
+        # bands shaded. Mirrors the path chart on the main Cashflow Portfolio Analysis page.
         st.subheader("Lifecycle Portfolio Path")
         st.caption(
             "Median portfolio value across the full lifecycle (accumulation "
