@@ -166,20 +166,12 @@ class SimInputs:
 # Source: Becker Capital Management, Inc. — "2026 CMAs.pdf"
 # All values are annual decimals: (mu, sigma).
 #
-# Used to build the three sidebar presets (Conservative / Moderate /
-# Aggressive). Three asset classes from each side are exposed below — they're
-# kept as a small lookup dict rather than the full 19-asset CMA table because
-# the engine only models two buckets (Equity, Fixed Income) and the presets
-# pick a single equity class + a single FI class per risk tier.
+# Only the two asset classes the single preset uses are kept here. The full
+# 19-asset CMA reference table lives in memory/reference_bcm_cma_2026.md.
 # =============================================================================
 BCM_CMA_2026 = {
-    # Equity
-    "EQ_US_LARGE":    (0.0600, 0.1700),  # Russell 1000
-    "EQ_US_SMALL":    (0.0925, 0.2250),  # Russell 2000
-    # Fixed Income
-    "FI_ST_US":       (0.0380, 0.0250),  # Short-Term U.S. Corp & Govt (1-5Y)
-    "FI_IT_US":       (0.0500, 0.0550),  # Intermediate-Term U.S. (5-10Y)
-    "FI_HY":          (0.0575, 0.1200),  # High Yield
+    "EQ_US_LARGE": (0.0600, 0.1700),  # Russell 1000
+    "FI_IT_US":    (0.0500, 0.0550),  # Intermediate-Term U.S. Corp & Govt (5-10Y)
 }
 
 
@@ -194,20 +186,13 @@ def _bcm_preset(label: str, eq_key: str, fi_key: str) -> ReturnAssumptions:
     )
 
 
-# Three risk-tiered presets, each sourced from BCM's 2026 10-year CMAs.
-# Moderate is the user-selected default (Large Cap + Intermediate Bonds).
+# Single preset sourced from BCM's 2026 10-year CMAs (Large Cap +
+# Intermediate U.S. Bonds — the same combination that was previously
+# labeled "Moderate" before the risk-tier framing was dropped).
 PRESETS = {
-    "BCM 2026 — Conservative": _bcm_preset(
-        "BCM 2026 • Conservative (Large Cap + Short-Term Bonds)",
-        eq_key="EQ_US_LARGE", fi_key="FI_ST_US",
-    ),
-    "BCM 2026 — Moderate":     _bcm_preset(
-        "BCM 2026 • Moderate (Large Cap + Intermediate Bonds)",
+    "BCM 2026 CMAs": _bcm_preset(
+        "BCM 2026 CMAs (Large Cap + Intermediate Bonds)",
         eq_key="EQ_US_LARGE", fi_key="FI_IT_US",
-    ),
-    "BCM 2026 — Aggressive":   _bcm_preset(
-        "BCM 2026 • Aggressive (Small Cap + High Yield)",
-        eq_key="EQ_US_SMALL", fi_key="FI_HY",
     ),
 }
 
@@ -2849,24 +2834,16 @@ def main():
         st.caption(
             "Forward-looking μ and σ are sourced from Becker Capital "
             "Management's published 2026 Capital Market Assumptions "
-            "(10-year estimates). All scenarios use a parametric "
-            "(normal-distribution) Monte Carlo."
+            "(10-year estimates)."
         )
 
         preset_choice = st.selectbox(
             "Preset",
-            ["BCM 2026 — Conservative (Large Cap + Short-Term Bonds)",
-             "BCM 2026 — Moderate (Large Cap + Intermediate Bonds)",
-             "BCM 2026 — Aggressive (Small Cap + High Yield)",
-             "Custom"],
-            index=1,  # Moderate default
+            ["BCM 2026 CMAs", "Custom"],
+            index=0,
         )
-        if preset_choice.startswith("BCM 2026 — Conservative"):
-            ra = PRESETS["BCM 2026 — Conservative"]
-        elif preset_choice.startswith("BCM 2026 — Moderate"):
-            ra = PRESETS["BCM 2026 — Moderate"]
-        elif preset_choice.startswith("BCM 2026 — Aggressive"):
-            ra = PRESETS["BCM 2026 — Aggressive"]
+        if preset_choice == "BCM 2026 CMAs":
+            ra = PRESETS["BCM 2026 CMAs"]
         else:
             colA, colB = st.columns(2)
             with colA:
@@ -2888,7 +2865,7 @@ def main():
             ra = ReturnAssumptions(
                 eq_mu=eq_mu_in, eq_sigma=eq_sig_in,
                 fi_mu=fi_mu_in, fi_sigma=fi_sig_in,
-                label="Custom Parametric",
+                label="Custom",
             )
         st.caption(
             f"Eq μ = {ra.eq_mu*100:.2f}%, σ = {ra.eq_sigma*100:.2f}%  |  "
