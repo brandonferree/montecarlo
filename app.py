@@ -1690,10 +1690,18 @@ def simulate_goal_scenario(
     result = simulate_scenario(s, inputs, seed_offset=seed_offset)
     # Augment with goal-specific stats
     yr_at_retirement = result["balances"][:, goal.years_to_retirement]
+    yr_final = result["balances"][:, -1]
     result["success_prob"] = 1.0 - result["p_ruin"]
     result["median_at_retirement"] = float(np.median(yr_at_retirement))
     result["p20_at_retirement"] = float(np.percentile(yr_at_retirement, 20))
     result["p80_at_retirement"] = float(np.percentile(yr_at_retirement, 80))
+    # Per-path probability that the final balance ended above the path's own
+    # retirement-start balance — i.e., that the portfolio grew (or at least
+    # didn't shrink) across the distribution phase despite withdrawals.
+    # NOT compared against `initial_savings`; the user-facing question on the
+    # savings-goal page is whether retirement preserves the accumulation
+    # endpoint, not whether it beats the starting deposit.
+    result["p_above_retirement"] = float(np.mean(yr_final > yr_at_retirement))
     result["goal"] = goal
     result["annual_savings"] = annual_savings
     result["initial_savings"] = initial_savings
