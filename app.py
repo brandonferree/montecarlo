@@ -2872,12 +2872,10 @@ def main():
             f"FI μ = {ra.fi_mu*100:.2f}%, σ = {ra.fi_sigma*100:.2f}%"
         )
 
-        st.divider()
-        st.subheader("Simulation")
-        n_paths = st.select_slider(
-            "Number of paths", options=[1_000, 2_500, 5_000, 10_000, 25_000],
-            value=10_000,
-        )
+    # Path count was previously a user-facing select_slider; hard-coded now
+    # for consistency across runs. 7500 keeps run time well under 5 seconds
+    # for the 3-scenario case while still giving tight percentile bands.
+    n_paths = 7500
 
     # ----- Main area: scenario builder -----
     st.subheader("Scenarios")
