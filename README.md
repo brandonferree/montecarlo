@@ -1,6 +1,6 @@
-# Becker Capital — Monte Carlo Portfolio Analysis (Streamlit)
+# Becker Capital — Cashflow Portfolio Analysis (Streamlit)
 
-A self-contained web tool that lets advisors configure a portfolio Monte Carlo
+A self-contained web tool that lets advisors configure a portfolio cashflow
 analysis and download the same Becker-branded PDF report as the original deliverable.
 
 ## Files
