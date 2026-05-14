@@ -382,7 +382,13 @@ def main():
         return results, sensitivity
 
     if run_clicked:
+        # The version tag is bumped whenever the result dict gains new fields,
+        # so stale @st.cache_data entries from older deploys (which lack the
+        # new field) don't satisfy a cache hit and crash the renderer.
+        # Bump this any time simulate_goal_scenario adds/renames a field.
+        _RESULT_SCHEMA_VERSION = "v2-p_above_retirement"
         cache_key = repr((
+            _RESULT_SCHEMA_VERSION,
             tuple((g.name, g.years_to_retirement, g.years_in_retirement,
                    g.desired_annual_income, g.accumulation_eq_weight,
                    g.retirement_eq_weight) for g in goals),
@@ -464,9 +470,19 @@ def main():
                 # balance against THAT path's retirement-start balance — i.e.,
                 # "did retirement preserve the accumulation endpoint", not
                 # "did it beat the starting deposit".
-                p_ruin_str = f"{res['result']['p_ruin']*100:.2f}%"
+                #
+                # Defensive .get(): a previous deploy's @st.cache_data entry
+                # or st.session_state["sg_results"] may pre-date these fields.
+                # Falling back to "—" beats crashing the renderer; clicking
+                # Calculate Required Savings re-runs and fills them in.
+                p_ruin_raw = res['result'].get('p_ruin')
+                p_above_ret_raw = res['result'].get('p_above_retirement')
+                p_ruin_str = (
+                    f"{p_ruin_raw*100:.2f}%" if p_ruin_raw is not None else "—"
+                )
                 p_above_ret_str = (
-                    f"{res['result']['p_above_retirement']*100:.1f}%"
+                    f"{p_above_ret_raw*100:.1f}%"
+                    if p_above_ret_raw is not None else "—"
                 )
 
                 # Inline styles back up the .becker-preview-* classes in
