@@ -70,8 +70,7 @@ def _render_savings_header():
 def _return_assumptions_picker() -> ReturnAssumptions:
     """
     Mirror of the return-assumptions picker on the main page. Forward-looking
-    μ/σ are sourced from BCM's 2026 Capital Market Assumptions; the engine
-    runs a parametric (normal-distribution) Monte Carlo.
+    μ/σ are sourced from BCM's 2026 Capital Market Assumptions.
     """
     st.caption(
         "Forward-looking μ and σ are sourced from Becker Capital "
@@ -80,19 +79,12 @@ def _return_assumptions_picker() -> ReturnAssumptions:
 
     preset_choice = st.selectbox(
         "Preset",
-        ["BCM 2026 — Conservative (Large Cap + Short-Term Bonds)",
-         "BCM 2026 — Moderate (Large Cap + Intermediate Bonds)",
-         "BCM 2026 — Aggressive (Small Cap + High Yield)",
-         "Custom"],
-        index=1,  # Moderate default
+        ["BCM 2026 CMAs", "Custom"],
+        index=0,
         key="sg_preset",
     )
-    if preset_choice.startswith("BCM 2026 — Conservative"):
-        ra = PRESETS["BCM 2026 — Conservative"]
-    elif preset_choice.startswith("BCM 2026 — Moderate"):
-        ra = PRESETS["BCM 2026 — Moderate"]
-    elif preset_choice.startswith("BCM 2026 — Aggressive"):
-        ra = PRESETS["BCM 2026 — Aggressive"]
+    if preset_choice == "BCM 2026 CMAs":
+        ra = PRESETS["BCM 2026 CMAs"]
     else:
         colA, colB = st.columns(2)
         with colA:
@@ -110,7 +102,7 @@ def _return_assumptions_picker() -> ReturnAssumptions:
         ra = ReturnAssumptions(
             eq_mu=eq_mu, eq_sigma=eq_sig,
             fi_mu=fi_mu, fi_sigma=fi_sig,
-            label="Custom Parametric",
+            label="Custom",
         )
     st.caption(
         f"Eq μ = {ra.eq_mu*100:.2f}%, σ = {ra.eq_sigma*100:.2f}%  |  "
