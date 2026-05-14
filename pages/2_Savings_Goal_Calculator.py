@@ -25,6 +25,7 @@ _PARENT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _PARENT not in sys.path:
     sys.path.insert(0, _PARENT)
 
+import numpy as np
 from app import (  # noqa: E402
     # Brand
     GOLD_HEX, NAVY_HEX, NAVY_DARK_HEX, SCENARIO_COLOR_HEX,
@@ -485,19 +486,22 @@ def main():
                 # "did retirement preserve the accumulation endpoint", not
                 # "did it beat the starting deposit".
                 #
-                # Defensive .get(): a previous deploy's @st.cache_data entry
-                # or st.session_state["sg_results"] may pre-date these fields.
-                # Falling back to "—" beats crashing the renderer; clicking
-                # Calculate Required Savings re-runs and fills them in.
+                # Computed inline (rather than read from a result dict field)
+                # so it ALWAYS works regardless of which deploy's cached
+                # entry produced the result. simulate_scenario has always
+                # returned balances; everything we need is there.
                 p_ruin_raw = res['result'].get('p_ruin')
-                p_above_ret_raw = res['result'].get('p_above_retirement')
                 p_ruin_str = (
                     f"{p_ruin_raw*100:.2f}%" if p_ruin_raw is not None else "—"
                 )
-                p_above_ret_str = (
-                    f"{p_above_ret_raw*100:.1f}%"
-                    if p_above_ret_raw is not None else "—"
-                )
+                balances = res['result'].get('balances')
+                if balances is not None:
+                    yr_ret = balances[:, g.years_to_retirement]
+                    yr_final = balances[:, -1]
+                    p_above_ret_val = float((yr_final > yr_ret).mean())
+                    p_above_ret_str = f"{p_above_ret_val*100:.1f}%"
+                else:
+                    p_above_ret_str = "—"
 
                 # Inline styles back up the .becker-preview-* classes in
                 # _inject_becker_css(). Belt-and-suspenders against any
