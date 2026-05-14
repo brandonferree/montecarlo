@@ -175,17 +175,11 @@ def main():
         st.subheader("Return Assumptions")
         ra = _return_assumptions_picker()
 
-        st.divider()
-        st.subheader("Simulation")
-        n_paths = st.select_slider(
-            "Paths per candidate",
-            options=[1_000, 2_500, 5_000, 10_000],
-            value=2_500, key="sg_n_paths",
-            help=(
-                "More paths = more accurate solver, but slower. "
-                "The bisection runs ~12–18 simulations per scenario."
-            ),
-        )
+    # Path count was previously a user-facing select_slider; hard-coded now
+    # for consistency. 2500 keeps a single Calculate click under ~60 seconds
+    # for the 3-scenario case (each click runs ~12 bisection searches × ~14
+    # sims each), while leaving the bisection converged to within ~1.5%.
+    n_paths = 2500
 
     # ----- Main area: scenario builder -----
     st.subheader("Goal-Planning Scenarios")
