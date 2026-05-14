@@ -2769,9 +2769,9 @@ def _render_header():
           </div>
           <div class="becker-header-text">
             <div class="becker-eyebrow">BECKER CAPITAL MANAGEMENT  •  EST. 1976</div>
-            <div class="becker-title">Monte Carlo Portfolio Analysis</div>
+            <div class="becker-title">Cashflow Portfolio Analysis</div>
             <div class="becker-subtitle">
-              Configure inputs, preview Monte Carlo outcomes, and download a branded
+              Configure inputs, preview outcomes, and download a branded
               PDF report for client review.
             </div>
           </div>
@@ -2802,7 +2802,7 @@ def _render_footer():
 
 def main():
     st.set_page_config(
-        page_title="Becker Capital — Monte Carlo Portfolio Analysis",
+        page_title="Becker Capital — Cashflow Portfolio Analysis",
         page_icon="📊",
         layout="wide",
     )
