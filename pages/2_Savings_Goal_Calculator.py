@@ -588,7 +588,7 @@ def main():
                     f'<div class="becker-preview-value" style="{value_css}">{p_ruin_str}</div>'
                     f'</div>'
                     f'<div class="becker-preview-row" style="{row_css}">'
-                    f'<div class="becker-preview-label" style="{label_css}">P(Value End &gt; Value Retirement Start)</div>'
+                    f'<div class="becker-preview-label" style="{label_css}">P(V-End - V-Ret-Start)</div>'
                     f'<div class="becker-preview-value" style="{value_css}">{p_above_ret_str}</div>'
                     f'</div>'
                     f'<div style="{sens_header_css}">Required Savings by Confidence</div>'
