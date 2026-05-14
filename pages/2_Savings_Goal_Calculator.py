@@ -110,7 +110,7 @@ def _return_assumptions_picker() -> ReturnAssumptions:
         ra = ReturnAssumptions(
             eq_mu=eq_mu, eq_sigma=eq_sig,
             fi_mu=fi_mu, fi_sigma=fi_sig,
-            label="Custom Parametric", method="parametric",
+            label="Custom Parametric",
         )
     st.caption(
         f"Eq μ = {ra.eq_mu*100:.2f}%, σ = {ra.eq_sigma*100:.2f}%  |  "
@@ -356,7 +356,7 @@ def main():
                    g.desired_annual_income, g.accumulation_eq_weight,
                    g.retirement_eq_weight) for g in goals),
             initial_savings, target_success, inflation,
-            ra.label, ra.eq_mu, ra.fi_mu, ra.method, n_paths,
+            ra.label, ra.eq_mu, ra.fi_mu, n_paths,
         ))
         # Show progress: 3 scenarios × (1 headline + 3 sensitivity) = ~12
         # bisection runs at 12–18 sims each. Display a spinner with hint.
