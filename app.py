@@ -1066,8 +1066,6 @@ def build_pdf(results: List[dict], inputs: SimInputs,
         + ["—"] * n_scen,
         ["Inflation on Cash Flows", "—", "—"]
         + [f"{inputs.inflation*100:.2f}%"] * n_scen,
-        ["Method", "Parametric (normal)", "Parametric (normal)"]
-        + ["Parametric"] * n_scen,
     ]
     base_w = 1.85
     blend_w = max(0.65, (PAGE_W - 1.2 * inch - (base_w + 0.85 + 0.95) * inch)
