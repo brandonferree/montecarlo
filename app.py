@@ -27,7 +27,7 @@ from reportlab.platypus import (
     BaseDocTemplate, PageTemplate, Frame, Paragraph, Spacer, Table, TableStyle,
     Image, PageBreak, NextPageTemplate,
 )
-from reportlab.lib.enums import TA_LEFT, TA_JUSTIFY
+from reportlab.lib.enums import TA_LEFT, TA_JUSTIFY, TA_CENTER
 
 
 # =============================================================================
@@ -673,6 +673,10 @@ def build_pdf(results: List[dict], inputs: SimInputs,
                                          leading=10, textColor=TEXT_MED, alignment=TA_LEFT)
     P_COVER_FIELD_VAL = ParagraphStyle("CovVal", fontName="Helvetica-Bold", fontSize=15,
                                        leading=17, textColor=NAVY, alignment=TA_LEFT)
+    P_FACT_VAL = ParagraphStyle("FactVal", fontName="Helvetica-Bold", fontSize=10,
+                                leading=12, textColor=NAVY, alignment=TA_CENTER)
+    P_FACT_LABEL = ParagraphStyle("FactLabel", fontName="Helvetica", fontSize=7.5,
+                                  leading=9.5, textColor=TEXT_MED, alignment=TA_CENTER)
 
     # ----- Page decorations -----
     def cover_decoration(canv, doc):
@@ -923,40 +927,44 @@ def build_pdf(results: List[dict], inputs: SimInputs,
         P_KICKER,
     ))
 
-    # Top fact strip — use variable column widths because the equity column
-    # may carry a long glide notation like "60/40 • 80/20→60/40 • 80/20".
-    # Total available: PAGE_W - 1.2*inch (margins) = 7.3 inch.
-    fact_data = [
-        [f"${inputs.initial/1e6:.1f}M",
-         eq_strs,
-         dist_label,
-         inputs.distribution_frequency,
-         f"{inputs.horizon_years} Years",
-         f"{inputs.inflation*100:.2f}%"],
-        ["Initial Investment", "Equity / Fixed Income", "Annual Distribution",
-         "Distribution Frequency", "Time Horizon", "Inflation"],
+    # Top fact strip — six input metrics laid out as a two-tier band, three
+    # metrics per row. Splitting across two rows gives each value real room:
+    # with several scenarios the equity ("90/10 • 90/10 • 90/10") and
+    # distribution ("$300K, $350K, $400K / yr") strings get long, and a single
+    # six-across row overflowed and collided. Cells are Paragraphs so an
+    # extra-long value wraps inside its column instead of spilling over.
+    fact_metrics = [
+        (f"${inputs.initial/1e6:.1f}M", "Initial Investment"),
+        (eq_strs, "Equity / Fixed Income"),
+        (dist_label, "Annual Distribution"),
+        (inputs.distribution_frequency, "Distribution Frequency"),
+        (f"{inputs.horizon_years} Years", "Time Horizon"),
+        (f"{inputs.inflation*100:.2f}%", "Inflation"),
     ]
-    # Give the equity column more room when glide path notation is in play
-    if any_glide:
-        fact_widths = [0.95 * inch, 2.10 * inch, 1.20 * inch,
-                       1.15 * inch, 0.95 * inch, 0.95 * inch]
-    else:
-        fact_widths = [1.15 * inch] * 6
-    fact_tbl = Table(fact_data, colWidths=fact_widths)
-    fact_tbl.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), LIGHT_BG),
-        ("FONT", (0, 0), (-1, 0), "Helvetica-Bold", 10),
-        ("TEXTCOLOR", (0, 0), (-1, 0), NAVY),
-        ("FONT", (0, 1), (-1, 1), "Helvetica", 7.5),
-        ("TEXTCOLOR", (0, 1), (-1, 1), TEXT_MED),
+    FACT_COLS = 3
+    fact_data = []
+    for start in range(0, len(fact_metrics), FACT_COLS):
+        chunk = fact_metrics[start:start + FACT_COLS]
+        fact_data.append([Paragraph(val, P_FACT_VAL) for val, _ in chunk])
+        fact_data.append([Paragraph(lbl, P_FACT_LABEL) for _, lbl in chunk])
+    fact_col_w = (PAGE_W - 1.2 * inch) / FACT_COLS
+    fact_tbl = Table(fact_data, colWidths=[fact_col_w] * FACT_COLS)
+    fact_style = [
+        ("BACKGROUND", (0, 0), (-1, -1), LIGHT_BG),
         ("ALIGN", (0, 0), (-1, -1), "CENTER"),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("TOPPADDING", (0, 0), (-1, 0), 8),
-        ("BOTTOMPADDING", (0, 0), (-1, 0), 4),
-        ("BOTTOMPADDING", (0, 1), (-1, 1), 8),
         ("LINEABOVE", (0, 0), (-1, 0), 0.5, RULE_GREY),
-        ("LINEBELOW", (0, 1), (-1, 1), 0.5, RULE_GREY),
-    ]))
+        ("LINEBELOW", (0, -1), (-1, -1), 0.5, RULE_GREY),
+    ]
+    # Value rows are even-indexed; label rows odd-indexed. Pad so each
+    # value/label pair reads as one unit and the two tiers stay separated.
+    for vr in range(0, len(fact_data), 2):
+        fact_style.append(("TOPPADDING", (0, vr), (-1, vr), 9))
+        fact_style.append(("BOTTOMPADDING", (0, vr), (-1, vr), 2))
+    for lr in range(1, len(fact_data), 2):
+        fact_style.append(("TOPPADDING", (0, lr), (-1, lr), 0))
+        fact_style.append(("BOTTOMPADDING", (0, lr), (-1, lr), 9))
+    fact_tbl.setStyle(TableStyle(fact_style))
     story.append(fact_tbl)
     story.append(Spacer(1, 12))
 
@@ -2140,39 +2148,46 @@ def build_savings_goal_pdf(
         "FactLbl", fontName="Helvetica", fontSize=7.5, leading=9,
         textColor=TEXT_MED, alignment=1,
     )
-    fact_data = [
-        [Paragraph(f"${initial_savings/1e6:.2f}M", P_FACT_VAL),
-         Paragraph(alloc_strs, P_FACT_VAL),
-         Paragraph(income_str, P_FACT_VAL),
-         Paragraph(yrs_to_ret_str, P_FACT_VAL),
-         Paragraph(yrs_in_ret_str, P_FACT_VAL),
-         Paragraph(f"{int(target_success_prob*100)}%", P_FACT_VAL)],
-        [Paragraph("Current Savings", P_FACT_LBL),
-         Paragraph("Equity / Fixed Income", P_FACT_LBL),
-         Paragraph("Income Target", P_FACT_LBL),
-         Paragraph("Yrs to Retirement", P_FACT_LBL),
-         Paragraph("Yrs in Retirement", P_FACT_LBL),
-         Paragraph("Target Success", P_FACT_LBL)],
+    # Two-tier band, three metrics per row (mirrors the planner report) so
+    # long multi-scenario values get real horizontal room instead of being
+    # squeezed into narrow six-across columns. Cells stay Paragraphs so an
+    # extra-long value still wraps inside its column.
+    fact_metrics = [
+        (Paragraph(f"${initial_savings/1e6:.2f}M", P_FACT_VAL),
+         Paragraph("Current Savings", P_FACT_LBL)),
+        (Paragraph(alloc_strs, P_FACT_VAL),
+         Paragraph("Equity / Fixed Income", P_FACT_LBL)),
+        (Paragraph(income_str, P_FACT_VAL),
+         Paragraph("Income Target", P_FACT_LBL)),
+        (Paragraph(yrs_to_ret_str, P_FACT_VAL),
+         Paragraph("Yrs to Retirement", P_FACT_LBL)),
+        (Paragraph(yrs_in_ret_str, P_FACT_VAL),
+         Paragraph("Yrs in Retirement", P_FACT_LBL)),
+        (Paragraph(f"{int(target_success_prob*100)}%", P_FACT_VAL),
+         Paragraph("Target Success", P_FACT_LBL)),
     ]
-    # When ANY scenario has a glide path AND scenarios differ, the equity
-    # column needs the most room; otherwise equal-width columns work fine.
-    if any_glide and len(set(individual_alloc_strs)) > 1:
-        fact_widths = [0.95 * inch, 2.30 * inch, 1.10 * inch,
-                       1.05 * inch, 1.05 * inch, 0.85 * inch]
-    else:
-        fact_widths = [1.15 * inch] * 6
-    fact_tbl = Table(fact_data, colWidths=fact_widths)
-    fact_tbl.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), LIGHT_BG),
+    FACT_COLS = 3
+    fact_data = []
+    for start in range(0, len(fact_metrics), FACT_COLS):
+        chunk = fact_metrics[start:start + FACT_COLS]
+        fact_data.append([val for val, _ in chunk])
+        fact_data.append([lbl for _, lbl in chunk])
+    fact_col_w = (PAGE_W - 1.2 * inch) / FACT_COLS
+    fact_tbl = Table(fact_data, colWidths=[fact_col_w] * FACT_COLS)
+    fact_style = [
+        ("BACKGROUND", (0, 0), (-1, -1), LIGHT_BG),
         ("ALIGN", (0, 0), (-1, -1), "CENTER"),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("TOPPADDING", (0, 0), (-1, 0), 8),
-        ("BOTTOMPADDING", (0, 0), (-1, 0), 4),
-        ("TOPPADDING", (0, 1), (-1, 1), 0),
-        ("BOTTOMPADDING", (0, 1), (-1, 1), 8),
         ("LINEABOVE", (0, 0), (-1, 0), 0.5, RULE_GREY),
-        ("LINEBELOW", (0, 1), (-1, 1), 0.5, RULE_GREY),
-    ]))
+        ("LINEBELOW", (0, -1), (-1, -1), 0.5, RULE_GREY),
+    ]
+    for vr in range(0, len(fact_data), 2):
+        fact_style.append(("TOPPADDING", (0, vr), (-1, vr), 9))
+        fact_style.append(("BOTTOMPADDING", (0, vr), (-1, vr), 2))
+    for lr in range(1, len(fact_data), 2):
+        fact_style.append(("TOPPADDING", (0, lr), (-1, lr), 0))
+        fact_style.append(("BOTTOMPADDING", (0, lr), (-1, lr), 9))
+    fact_tbl.setStyle(TableStyle(fact_style))
     story.append(fact_tbl)
     story.append(Spacer(1, 12))
 
