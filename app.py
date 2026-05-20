@@ -1307,9 +1307,14 @@ def build_pdf(results: List[dict], inputs: SimInputs,
         )
     story.append(Paragraph(alloc_intro, P_BODY))
 
-    # Dual-pie image needs more vertical space when glide path is present.
-    img_h = 3.6 * inch if any_glide else 2.3 * inch
-    story.append(Image(img_alloc_buf, width=7.0 * inch, height=img_h))
+    # Scale the allocation chart proportionally within a bounding box so the
+    # pies stay perfectly circular. A fixed width+height would stretch the
+    # image to the box's aspect ratio and render the circles as ellipses.
+    box_h = 3.6 * inch if any_glide else 2.3 * inch
+    alloc_img = Image(img_alloc_buf, width=7.0 * inch, height=box_h,
+                      kind="proportional")
+    alloc_img.hAlign = "CENTER"
+    story.append(alloc_img)
     story.append(Paragraph(fig3_caption, P_FIGCAP))
 
     story.extend(section_header("Key Findings"))
@@ -3131,7 +3136,7 @@ def main():
                 pdf_bytes = build_pdf(results, inputs)
                 st.session_state["pdf_bytes"] = pdf_bytes
                 st.session_state["pdf_filename"] = (
-                    f"Becker_MonteCarlo_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
+                    f"bcmplanner_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
                 )
             st.success("PDF ready — click below to download.")
     with colp2:

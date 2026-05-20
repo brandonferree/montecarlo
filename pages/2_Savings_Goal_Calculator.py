@@ -588,7 +588,7 @@ def main():
                     )
                     st.session_state["sg_pdf_bytes"] = pdf_bytes
                     st.session_state["sg_pdf_filename"] = (
-                        f"Becker_SavingsGoal_"
+                        f"bcmsavings_"
                         f"{datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
                     )
                 st.success("PDF ready — click below to download.")
