@@ -1125,12 +1125,6 @@ def build_pdf(results: List[dict], inputs: SimInputs,
                 if r['scenario'].has_glide_path else "(no change)")
                for r in results]
         )
-        rows.append(
-            ["Glide Transition Year"]
-            + [(f"Yr {r['scenario'].distribution_start_year}"
-                if r['scenario'].has_glide_path else "—")
-               for r in results]
-        )
 
     # Contribution rows (only shown if any scenario has contributions)
     if has_contrib:
@@ -1175,8 +1169,6 @@ def build_pdf(results: List[dict], inputs: SimInputs,
 
     # Outcome rows
     rows += [
-        ["Median Value — Year 10"] + [fmt_m(r["median_y10"]) for r in results],
-        ["Median Value — Year 20"] + [fmt_m(r["median_y20"]) for r in results],
         [f"Median Value — Year {inputs.horizon_years}"]
         + [fmt_m(r["median_yfinal"]) for r in results],
         [f"40th Percentile (Year {inputs.horizon_years})"]
