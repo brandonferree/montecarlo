@@ -343,6 +343,8 @@ def simulate_scenario(scen: Scenario, inputs: SimInputs, seed_offset: int) -> di
         "mean_yfinal": float(np.mean(yr_final)),
         "p20_yfinal": float(np.percentile(yr_final, 20)),
         "p25_yfinal": float(np.percentile(yr_final, 25)),
+        "p40_yfinal": float(np.percentile(yr_final, 40)),
+        "p60_yfinal": float(np.percentile(yr_final, 60)),
         "p75_yfinal": float(np.percentile(yr_final, 75)),
         "p80_yfinal": float(np.percentile(yr_final, 80)),
         "iqr_yfinal": float(np.percentile(yr_final, 75) - np.percentile(yr_final, 25)),
@@ -1276,10 +1278,10 @@ def build_pdf(results: List[dict], inputs: SimInputs,
         ["Median Value — Year 20"] + [fmt_m(r["median_y20"]) for r in results],
         [f"Median Value — Year {inputs.horizon_years}"]
         + [fmt_m(r["median_yfinal"]) for r in results],
-        [f"20th Percentile (Year {inputs.horizon_years})"]
-        + [fmt_m(r["p20_yfinal"]) for r in results],
-        [f"80th Percentile (Year {inputs.horizon_years})"]
-        + [fmt_m(r["p80_yfinal"]) for r in results],
+        [f"40th Percentile (Year {inputs.horizon_years})"]
+        + [fmt_m(r["p40_yfinal"]) for r in results],
+        [f"60th Percentile (Year {inputs.horizon_years})"]
+        + [fmt_m(r["p60_yfinal"]) for r in results],
         ["Chance of Success"] + [fmt_pct(1 - r["p_ruin"], 1) for r in results],
         ["Prob. Exceeds Initial Investment"]
         + [fmt_pct(r["p_above_init"], 1) for r in results],
@@ -1336,14 +1338,14 @@ def build_pdf(results: List[dict], inputs: SimInputs,
         ["Mean Final Value"] + [fmt_m(r["mean_yfinal"]) for r in results],
         [f"Median (50th Pct) — Yr {inputs.horizon_years}"]
         + [fmt_m(r["median_yfinal"]) for r in results],
-        [f"20th Percentile — Yr {inputs.horizon_years}"]
-        + [fmt_m(r["p20_yfinal"]) for r in results],
         [f"25th Percentile — Yr {inputs.horizon_years}"]
         + [fmt_m(r["p25_yfinal"]) for r in results],
+        [f"40th Percentile — Yr {inputs.horizon_years}"]
+        + [fmt_m(r["p40_yfinal"]) for r in results],
+        [f"60th Percentile — Yr {inputs.horizon_years}"]
+        + [fmt_m(r["p60_yfinal"]) for r in results],
         [f"75th Percentile — Yr {inputs.horizon_years}"]
         + [fmt_m(r["p75_yfinal"]) for r in results],
-        [f"80th Percentile — Yr {inputs.horizon_years}"]
-        + [fmt_m(r["p80_yfinal"]) for r in results],
         [f"Interquartile Range (Yr {inputs.horizon_years})"]
         + [fmt_m(r["iqr_yfinal"]) for r in results],
         ["Chance of Success (not depleted)"] + [fmt_pct(1 - r["p_ruin"], 2) for r in results],
@@ -1598,6 +1600,8 @@ def simulate_goal_scenario(
     result["median_at_retirement"] = float(np.median(yr_at_retirement))
     result["p20_at_retirement"] = float(np.percentile(yr_at_retirement, 20))
     result["p80_at_retirement"] = float(np.percentile(yr_at_retirement, 80))
+    result["p40_at_retirement"] = float(np.percentile(yr_at_retirement, 40))
+    result["p60_at_retirement"] = float(np.percentile(yr_at_retirement, 60))
     # Per-path probability that the final balance ended above the path's own
     # retirement-start balance — i.e., that the portfolio grew (or at least
     # didn't shrink) across the distribution phase despite withdrawals.
@@ -2379,10 +2383,10 @@ def build_savings_goal_pdf(
         + [f"{r['success_prob']*100:.1f}%" for r in goal_results],
         ["Median Portfolio at Retirement"]
         + [fmt_m(r["median_at_retirement"]) for r in goal_results],
-        ["20th Pct at Retirement"]
-        + [fmt_m(r["p20_at_retirement"]) for r in goal_results],
-        ["80th Pct at Retirement"]
-        + [fmt_m(r["p80_at_retirement"]) for r in goal_results],
+        ["40th Pct at Retirement"]
+        + [fmt_m(r["p40_at_retirement"]) for r in goal_results],
+        ["60th Pct at Retirement"]
+        + [fmt_m(r["p60_at_retirement"]) for r in goal_results],
     ]
     # Wrap each cell in Paragraph so HTML formatting renders
     headline_data = [[Paragraph(str(c), P_KEY_LABEL) if isinstance(c, str) else c
@@ -3264,7 +3268,10 @@ def main():
     # arrays. Storing in st.session_state avoids the serialization round-trip
     # entirely — Python objects live in memory between reruns and we manually
     # invalidate when inputs change.
-    inputs_key = repr(inputs)
+    # The "v2-mid-band" tag forces a recompute after the result dict gained
+    # the 40th/60th-percentile fields, so a stale session-state result from
+    # before that change can't trigger a KeyError in build_pdf.
+    inputs_key = "v2-mid-band|" + repr(inputs)
     cached = st.session_state.get("_main_sim_cache")
     if cached is None or cached.get("key") != inputs_key:
         with st.spinner("Running simulation..."):
@@ -3306,8 +3313,8 @@ def main():
             # parser doesn't pair them up and render the middle as LaTeX math.
             median_y_str = f"&#36;{r['median_yfinal']/1e6:,.2f}M"
             band_str = (
-                f"&#36;{r['p20_yfinal']/1e6:,.2f}M – "
-                f"&#36;{r['p80_yfinal']/1e6:,.2f}M"
+                f"&#36;{r['p40_yfinal']/1e6:,.2f}M – "
+                f"&#36;{r['p60_yfinal']/1e6:,.2f}M"
             )
             success_str = f"{(1 - r['p_ruin'])*100:.2f}%"
             p_above_str = f"{r['p_above_init']*100:.1f}%"
@@ -3322,7 +3329,7 @@ def main():
                     <div class="becker-preview-value">{median_y_str}</div>
                   </div>
                   <div class="becker-preview-row">
-                    <div class="becker-preview-label">20th–80th Pct</div>
+                    <div class="becker-preview-label">40th–60th Pct</div>
                     <div class="becker-preview-value">{band_str}</div>
                   </div>
                   <div class="becker-preview-row">

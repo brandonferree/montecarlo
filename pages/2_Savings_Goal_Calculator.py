@@ -138,7 +138,7 @@ def main():
     # crashes (or shows "—") on first load after a deploy with no input
     # change to trigger a recompute. The cache_data bump on the same key
     # handles the cache layer; this handles the session-state layer.
-    _CURRENT_SCHEMA_VERSION = "v3-extra-inflows"
+    _CURRENT_SCHEMA_VERSION = "v4-mid-band"
     if (st.session_state.get("sg_schema_version")
             != _CURRENT_SCHEMA_VERSION):
         for k in ("sg_results", "sg_sensitivity", "sg_inputs_snapshot",
@@ -410,7 +410,7 @@ def main():
         # so stale @st.cache_data entries from older deploys (which lack the
         # new field) don't satisfy a cache hit and crash the renderer.
         # Bump this any time simulate_goal_scenario adds/renames a field.
-        _RESULT_SCHEMA_VERSION = "v3-extra-inflows"
+        _RESULT_SCHEMA_VERSION = "v4-mid-band"
         cache_key = repr((
             _RESULT_SCHEMA_VERSION,
             tuple((g.name, g.years_to_retirement, g.years_in_retirement,
