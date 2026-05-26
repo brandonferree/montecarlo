@@ -2586,6 +2586,43 @@ def _inject_becker_css():
             color: {GOLD_HEX} !important;
         }}
 
+        /* Sidebar page navigation — larger, clean button-style links */
+        section[data-testid="stSidebarNav"] {{
+            padding-top: 6px;
+            margin-bottom: 8px;
+        }}
+        section[data-testid="stSidebarNav"] ul {{
+            gap: 8px;
+        }}
+        section[data-testid="stSidebarNav"] li a,
+        section[data-testid="stSidebarNav"] a[data-testid="stSidebarNavLink"] {{
+            padding: 14px 16px !important;
+            margin-bottom: 8px !important;
+            border-radius: 8px !important;
+            border: 1px solid rgba({CANYON_RGB}, 0.30) !important;
+            background-color: rgba({MIDNIGHT_RGB}, 0.35) !important;
+            transition: all 0.15s ease;
+        }}
+        section[data-testid="stSidebarNav"] a span {{
+            font-size: 1.08rem !important;
+            font-weight: 600 !important;
+            letter-spacing: 0.2px !important;
+        }}
+        section[data-testid="stSidebarNav"] li a:hover,
+        section[data-testid="stSidebarNav"] a[data-testid="stSidebarNavLink"]:hover {{
+            border-color: {GOLD_HEX} !important;
+            background-color: rgba({CANYON_RGB}, 0.18) !important;
+        }}
+        /* Active page — gold accent bar + gold label */
+        section[data-testid="stSidebarNav"] a[aria-current="page"] {{
+            background-color: rgba({CANYON_RGB}, 0.22) !important;
+            border-color: {GOLD_HEX} !important;
+            border-left: 4px solid {GOLD_HEX} !important;
+        }}
+        section[data-testid="stSidebarNav"] a[aria-current="page"] span {{
+            color: {GOLD_HEX} !important;
+        }}
+
         /* Custom Becker header card */
         .becker-header {{
             background: linear-gradient(135deg, {NAVY_DARK_HEX} 0%, {NAVY_HEX} 100%);
