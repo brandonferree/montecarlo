@@ -502,10 +502,6 @@ def main():
                 # so it ALWAYS works regardless of which deploy's cached
                 # entry produced the result. simulate_scenario has always
                 # returned balances; everything we need is there.
-                p_ruin_raw = res['result'].get('p_ruin')
-                p_ruin_str = (
-                    f"{p_ruin_raw*100:.2f}%" if p_ruin_raw is not None else "—"
-                )
                 balances = res['result'].get('balances')
                 if balances is not None:
                     yr_ret = balances[:, g.years_to_retirement]
@@ -588,16 +584,12 @@ def main():
                     f'<div class="becker-preview-value" style="{plan_value_css}">{phase_desc}</div>'
                     f'</div>'
                     f'<div class="becker-preview-row" style="{row_css}">'
-                    f'<div class="becker-preview-label" style="{label_css}">Achieved Success</div>'
+                    f'<div class="becker-preview-label" style="{label_css}">Chance of Success</div>'
                     f'<div class="becker-preview-value" style="{value_css}">{achieved_str}</div>'
                     f'</div>'
                     f'<div class="becker-preview-row" style="{row_css}">'
                     f'<div class="becker-preview-label" style="{label_css}">Median at Retirement</div>'
                     f'<div class="becker-preview-value" style="{value_css}">{median_str}</div>'
-                    f'</div>'
-                    f'<div class="becker-preview-row" style="{row_css}">'
-                    f'<div class="becker-preview-label" style="{label_css}">Probability of Ruin</div>'
-                    f'<div class="becker-preview-value" style="{value_css}">{p_ruin_str}</div>'
                     f'</div>'
                     f'<div class="becker-preview-row" style="{row_css}">'
                     f'<div class="becker-preview-label" style="{label_css}">P(End &gt; Ret-Start)</div>'
