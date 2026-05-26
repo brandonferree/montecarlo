@@ -693,9 +693,15 @@ def build_pdf(results: List[dict], inputs: SimInputs,
     PAGE_W, PAGE_H = LETTER
     buf = io.BytesIO()
 
+    # The Year-N Outcome Distributions page (histograms + Detailed Statistics
+    # table) is suppressed for now. The chart code and table code are kept
+    # intact below — flip this flag back to True to restore the page.
+    INCLUDE_DISTRIBUTIONS_PAGE = False
+
     # Render charts to BytesIO
     img_paths_buf = chart_paths_with_bands(results, inputs)
-    img_dist_buf = chart_yfinal_distributions(results, inputs)
+    img_dist_buf = (chart_yfinal_distributions(results, inputs)
+                    if INCLUDE_DISTRIBUTIONS_PAGE else None)
     img_alloc_buf = chart_allocations(results)
 
     # ----- Styles -----
@@ -844,13 +850,8 @@ def build_pdf(results: List[dict], inputs: SimInputs,
     mu_strs = [_scen_mu(s) for s in inputs.scenarios]
     any_glide = any(s.has_glide_path for s in inputs.scenarios)
 
-    story.append(Spacer(1, 0.3 * inch))
-    story.append(Paragraph(
-        f"{inputs.horizon_years}-YEAR PROJECTION  •  "
-        f"{n_scen} ALLOCATION{'S' if n_scen > 1 else ''}  •  "
-        f"${inputs.initial/1e6:.1f}M",
-        H_TAGLINE,
-    ))
+    # Cover is intentionally a clean title page — no figures listed here.
+    story.append(Spacer(1, 1.5 * inch))
     story.append(Paragraph("Cashflow Portfolio<br/>Analysis Report", H_TITLE))
     underline = Table([[""]], colWidths=[3.5 * inch], rowHeights=[3])
     underline.setStyle(TableStyle([("LINEBELOW", (0, 0), (-1, -1), 2, GOLD)]))
@@ -896,29 +897,12 @@ def build_pdf(results: List[dict], inputs: SimInputs,
         else:
             phase_str = "Per-scenario contribution period"
 
-    cover_fields = [
-        (f"${inputs.initial:,.0f}", "Initial Investment"),
-        (eq_strs, f"Equity / Fixed Income ({n_scen} Scenario{'s' if n_scen > 1 else ''})"),
-    ]
-    if has_contrib:
-        cover_fields.append(
-            (contrib_amt_str,
-             f"Annual Contribution (today's $, {phase_str})")
-        )
-    cover_fields += [
-        (dist_label, f"Annual Distribution (today's $, paid {inputs.distribution_frequency.lower()}, "
-                     f"+{inputs.inflation*100:.1f}% / yr)"),
-        (f"{min(mu_strs)*100:.2f}% – {max(mu_strs)*100:.2f}%"
-         if n_scen > 1 else f"{mu_strs[0]*100:.2f}%",
-         f"Blended Expected Return ({inputs.return_assumptions.label})"),
-        (f"{inputs.horizon_years} Years", "Time Horizon"),
-        (f"{inputs.inflation*100:.2f}%", "Inflation Rate"),
-    ]
-    for v, l in cover_fields:
-        story.append(cover_field(v, l))
-        story.append(Spacer(1, 6))
-
-    story.append(Spacer(1, 0.3 * inch))
+    # NOTE: the on-cover field stack (Initial Investment, allocations,
+    # distributions, expected return, horizon, inflation) was intentionally
+    # removed so the cover carries no figures. The dist_label / has_contrib /
+    # contrib_* and eq_strs values computed above are still used by later
+    # sections (fact strip, executive summary), so their computation stays.
+    story.append(Spacer(1, 0.7 * inch))
     prep_table = Table(
         [[Paragraph("<b>Prepared by:</b> Becker Capital Management", P_KEY_LABEL)],
          [Paragraph(f"<b>Date:</b> {prep_date}", P_KEY_LABEL)]],
@@ -1020,112 +1004,8 @@ def build_pdf(results: List[dict], inputs: SimInputs,
     story.append(fact_tbl)
     story.append(Spacer(1, 12))
 
-    story.extend(section_header("Executive Summary"))
-    scen_descs = ", ".join(
-        f"<b>{_alloc_str(s)} ({s.name})</b>"
-        for s in inputs.scenarios
-    )
-
-    # Optional contribution-phase paragraph
-    contrib_phase_text = ""
-    if has_contrib:
-        if len(contrib_years_set) == 1 and len(contrib_amounts) == 1:
-            cy = contrib_years_set[0]
-            ca = contrib_amounts[0]
-            contrib_phase_text = (
-                f"<br/><br/>"
-                f"<b>Contribution phase (Years 1–{cy}):</b> "
-                f"${ca:,.0f}/yr in today's dollars is added to the portfolio, "
-                f"escalating {inputs.inflation*100:.1f}% annually so that real purchasing "
-                f"power is preserved. Distributions begin in Year {cy+1}. "
-                f"All amounts entered are stated in today's (Year-1) dollars; the "
-                f"simulation translates them into nominal cash flows by compounding "
-                f"inflation forward. For example, a ${ca:,.0f} contribution in Year 1 "
-                f"becomes ${ca * (1 + inputs.inflation) ** (cy-1):,.0f} in Year {cy} "
-                f"to maintain the same real value."
-            )
-        else:
-            contrib_phase_text = (
-                "<br/><br/>"
-                "<b>Contribution phase:</b> Each scenario adds capital to the portfolio "
-                "for an initial period before distributions begin. Both contributions and "
-                f"distributions are entered in today's dollars and inflated forward at "
-                f"{inputs.inflation*100:.1f}% annually."
-            )
-
+    # Executive Summary prose removed — the fact strip and tables tell the story.
     ra = inputs.return_assumptions
-    method_text = (
-        f"Expected returns and volatility are derived from the "
-        f"<b>{ra.label}</b> assumption set: equity mean {ra.eq_mu*100:.2f}% "
-        f"(σ = {ra.eq_sigma*100:.2f}%), fixed income mean {ra.fi_mu*100:.2f}% "
-        f"(σ = {ra.fi_sigma*100:.2f}%). Per-period returns are drawn from a normal "
-        f"distribution parameterized to those annual figures, with asset classes "
-        f"treated as independent."
-    )
-
-    # Optional glide-path paragraph
-    glide_text = ""
-    if any_glide:
-        glide_scens = [s for s in inputs.scenarios if s.has_glide_path]
-        # Most reports have just one glide scenario, but handle the general case
-        glide_descs = "; ".join(
-            f"{s.name} rebalances from "
-            f"{int(s.eq_weight*100)}% equity / {int(s.fi_weight*100)}% fixed income "
-            f"during accumulation to "
-            f"{int(s.retirement_eq_weight*100)}% equity / "
-            f"{int((1-s.retirement_eq_weight)*100)}% fixed income at the start of "
-            f"the distribution phase (Year {s.distribution_start_year})"
-            for s in glide_scens
-        )
-        glide_text = (
-            "<br/><br/>"
-            "<b>Glide path:</b> One or more scenarios use a glide-path allocation that "
-            "shifts from a more aggressive accumulation-phase mix to a more conservative "
-            "retirement-phase mix when distributions begin. The transition is sharp — "
-            "the portfolio is rebalanced once at the start of the retirement phase. "
-            f"Specifically, {glide_descs}. This pattern reflects the common practice "
-            "of de-risking around retirement to reduce sequence-of-returns risk during "
-            "the early withdrawal years."
-        )
-
-    # Optional additional-income paragraph (shared note receivable / installments)
-    inflow_text = ""
-    if inputs.extra_inflows:
-        parts = []
-        for ev in inputs.extra_inflows:
-            if ev.years <= 1:
-                parts.append(
-                    f"{ev.label} — a one-time ${ev.amount:,.0f} (today's $) in "
-                    f"Year {ev.start_year}"
-                )
-            else:
-                end_yr = ev.start_year + ev.years - 1
-                parts.append(
-                    f"{ev.label} — ${ev.amount:,.0f}/yr (today's $) in Years "
-                    f"{ev.start_year}–{end_yr}"
-                )
-        inflow_text = (
-            "<br/><br/>"
-            "<b>Additional income:</b> The following inflows are added to the "
-            "portfolio in every scenario, entered in today's dollars and inflated "
-            "forward to preserve real value: " + "; ".join(parts) + "."
-        )
-
-    exec_text = (
-        f"This report presents a {inputs.horizon_years}-year simulation for a "
-        f"${inputs.initial:,.0f} portfolio, evaluating {n_scen} allocation "
-        f"strateg{'ies' if n_scen > 1 else 'y'} — {scen_descs}. "
-        f"Distributions are paid {inputs.distribution_frequency.lower()}, escalating "
-        f"{inputs.inflation*100:.1f}% annually to maintain real purchasing power. "
-        f"{contrib_phase_text}"
-        f"{glide_text}"
-        f"{inflow_text}"
-        f"<br/><br/>"
-        f"{method_text} "
-        f"The simulation runs {inputs.n_paths:,} independent paths per scenario."
-    )
-    story.append(Paragraph(exec_text, P_BODY))
-
     # Return assumptions table
     story.extend(section_header(f"Return Assumptions — {ra.label}"))
     # For glide scenarios, use retirement weights for the displayed blend
@@ -1174,22 +1054,44 @@ def build_pdf(results: List[dict], inputs: SimInputs,
         ("INNERGRID", (0, 1), (-1, -1), 0.25, RULE_GREY),
     ]))
     story.append(ra_tbl)
+    story.append(Spacer(1, 12))
+
+    # ==================== ALLOCATION COMPARISON (pies, below return table) ====
+    story.extend(section_header("Allocation Comparison"))
+    if any_glide:
+        alloc_intro = (
+            "All scenarios share the same asset classes — U.S. equity and fixed income; "
+            "glide-path scenarios de-risk once at the start of retirement."
+        )
+        fig3_caption = (
+            f"Figure 3 — {n_scen} allocation strateg"
+            f"{'ies' if n_scen > 1 else 'y'} evaluated. Top: accumulation mix; "
+            f"bottom: post-retirement mix. Gold arrows mark the rebalance at the "
+            f"start of distributions."
+        )
+    else:
+        alloc_intro = (
+            "All scenarios share the same asset classes — U.S. equity and fixed income; "
+            "the equity weighting and/or distribution amount is what varies."
+        )
+        fig3_caption = (
+            f"Figure 3 — {n_scen} target allocation"
+            f"{'s' if n_scen > 1 else ''} evaluated."
+        )
+    story.append(Paragraph(alloc_intro, P_BODY))
+    # Enlarged for a more visual, less text-heavy page. Scaled proportionally
+    # within the bounding box so the pies stay perfectly circular.
+    box_w = 7.3 * inch
+    box_h = 4.7 * inch if any_glide else 3.3 * inch
+    alloc_img = Image(img_alloc_buf, width=box_w, height=box_h,
+                      kind="proportional")
+    alloc_img.hAlign = "CENTER"
+    story.append(alloc_img)
+    story.append(Paragraph(fig3_caption, P_FIGCAP))
     story.append(PageBreak())
 
     # ==================== PATHS CHART + SUMMARY TABLE ====================
     story.extend(section_header("Scenario Comparison"))
-    method_blurb = (
-        f"Returns are drawn at the {inputs.distribution_frequency.lower()} "
-        "frequency from normal distributions parameterized by the chosen "
-        "annual return assumptions."
-    )
-    story.append(Paragraph(
-        f"Each scenario was simulated across <b>{inputs.n_paths:,} independent paths</b> "
-        f"over {inputs.horizon_years} years. {method_blurb} "
-        "The lines below show median outcomes; shaded regions show the 20th–80th percentile bands "
-        "of portfolio value.",
-        P_BODY,
-    ))
     story.append(Image(img_paths_buf, width=7.0 * inch, height=3.7 * inch))
     story.append(Paragraph(
         f"Figure 1 — Median portfolio value with 20th–80th percentile bands across {n_scen} "
@@ -1266,7 +1168,6 @@ def build_pdf(results: List[dict], inputs: SimInputs,
         + [f"${r['scenario'].annual_distribution/FREQ_TO_PER_YEAR[inputs.distribution_frequency]:,.0f}"
            for r in results]
     )
-    rows.append(["Annual Escalation"] + [f"{inputs.inflation*100:.1f}%"] * n_scen)
     rows.append(
         [f"Total Distributed (nominal, {inputs.horizon_years} yrs)"]
         + [fmt_m(r["total_distributed"]) for r in results]
@@ -1314,134 +1215,53 @@ def build_pdf(results: List[dict], inputs: SimInputs,
     sum_tbl = Table(sum_data, colWidths=[metric_w] + [scen_w] * n_scen)
     sum_tbl.setStyle(_make_data_table_style())
     story.append(sum_tbl)
-    story.append(PageBreak())
 
-    # ==================== DISTRIBUTIONS + DETAILED STATS ====================
-    story.extend(section_header(f"Year-{inputs.horizon_years} Outcome Distributions"))
-    story.append(Paragraph(
-        f"The histograms below show the full distribution of Year-{inputs.horizon_years} portfolio "
-        f"values across all {inputs.n_paths:,} simulated paths for each scenario. The dashed red "
-        "line marks the median outcome.",
-        P_BODY,
-    ))
-    story.append(Image(img_dist_buf, width=7.0 * inch, height=2.3 * inch))
-    story.append(Paragraph(
-        f"Figure 2 — Year-{inputs.horizon_years} portfolio value distributions.",
-        P_FIGCAP,
-    ))
+    # ============= DISTRIBUTIONS + DETAILED STATS (gated off for now) =======
+    if INCLUDE_DISTRIBUTIONS_PAGE:
+        story.append(PageBreak())
+        story.extend(section_header(f"Year-{inputs.horizon_years} Outcome Distributions"))
+        story.append(Paragraph(
+            f"The histograms below show the full distribution of Year-{inputs.horizon_years} portfolio "
+            f"values across all {inputs.n_paths:,} simulated paths for each scenario. The dashed red "
+            "line marks the median outcome.",
+            P_BODY,
+        ))
+        story.append(Image(img_dist_buf, width=7.0 * inch, height=2.3 * inch))
+        story.append(Paragraph(
+            f"Figure 2 — Year-{inputs.horizon_years} portfolio value distributions.",
+            P_FIGCAP,
+        ))
 
-    story.extend(section_header("Detailed Statistics"))
-    det_header = ["Statistic"] + [
-        f"{r['scenario'].name} ({_alloc_str(r['scenario'])})" for r in results
-    ]
-    det_rows = [
-        ["Mean Final Value"] + [fmt_m(r["mean_yfinal"]) for r in results],
-        [f"Median (50th Pct) — Yr {inputs.horizon_years}"]
-        + [fmt_m(r["median_yfinal"]) for r in results],
-        [f"25th Percentile — Yr {inputs.horizon_years}"]
-        + [fmt_m(r["p25_yfinal"]) for r in results],
-        [f"40th Percentile — Yr {inputs.horizon_years}"]
-        + [fmt_m(r["p40_yfinal"]) for r in results],
-        [f"60th Percentile — Yr {inputs.horizon_years}"]
-        + [fmt_m(r["p60_yfinal"]) for r in results],
-        [f"75th Percentile — Yr {inputs.horizon_years}"]
-        + [fmt_m(r["p75_yfinal"]) for r in results],
-        [f"Interquartile Range (Yr {inputs.horizon_years})"]
-        + [fmt_m(r["iqr_yfinal"]) for r in results],
-        ["Chance of Success (not depleted)"] + [fmt_pct(1 - r["p_ruin"], 2) for r in results],
-        [f"Prob. Above Initial Inv. (Yr {inputs.horizon_years})"]
-        + [fmt_pct(r["p_above_init"], 1) for r in results],
-        ["Blended Annual Mean Return"] + [fmt_pct(r["mu_a"], 2) for r in results],
-        ["Blended Annual Volatility (σ)"] + [fmt_pct(r["sig_a"], 2) for r in results],
-    ]
-    det_tbl = Table([det_header] + det_rows,
-                    colWidths=[metric_w] + [scen_w] * n_scen)
-    det_tbl.setStyle(_make_data_table_style())
-    story.append(det_tbl)
-    story.append(PageBreak())
+        story.extend(section_header("Detailed Statistics"))
+        det_header = ["Statistic"] + [
+            f"{r['scenario'].name} ({_alloc_str(r['scenario'])})" for r in results
+        ]
+        det_rows = [
+            ["Mean Final Value"] + [fmt_m(r["mean_yfinal"]) for r in results],
+            [f"Median (50th Pct) — Yr {inputs.horizon_years}"]
+            + [fmt_m(r["median_yfinal"]) for r in results],
+            [f"25th Percentile — Yr {inputs.horizon_years}"]
+            + [fmt_m(r["p25_yfinal"]) for r in results],
+            [f"40th Percentile — Yr {inputs.horizon_years}"]
+            + [fmt_m(r["p40_yfinal"]) for r in results],
+            [f"60th Percentile — Yr {inputs.horizon_years}"]
+            + [fmt_m(r["p60_yfinal"]) for r in results],
+            [f"75th Percentile — Yr {inputs.horizon_years}"]
+            + [fmt_m(r["p75_yfinal"]) for r in results],
+            [f"Interquartile Range (Yr {inputs.horizon_years})"]
+            + [fmt_m(r["iqr_yfinal"]) for r in results],
+            ["Chance of Success (not depleted)"] + [fmt_pct(1 - r["p_ruin"], 2) for r in results],
+            [f"Prob. Above Initial Inv. (Yr {inputs.horizon_years})"]
+            + [fmt_pct(r["p_above_init"], 1) for r in results],
+            ["Blended Annual Mean Return"] + [fmt_pct(r["mu_a"], 2) for r in results],
+            ["Blended Annual Volatility (σ)"] + [fmt_pct(r["sig_a"], 2) for r in results],
+        ]
+        det_tbl = Table([det_header] + det_rows,
+                        colWidths=[metric_w] + [scen_w] * n_scen)
+        det_tbl.setStyle(_make_data_table_style())
+        story.append(det_tbl)
 
-    # ==================== ALLOCATION COMPARISON + KEY FINDINGS ====================
-    story.extend(section_header("Allocation Comparison"))
-    if any_glide:
-        alloc_intro = (
-            "Each allocation maintains the same underlying asset classes — U.S. equity and "
-            "U.S. fixed income — and the same distribution policy. Scenarios with a "
-            "<b>glide path</b> rebalance from a more aggressive accumulation-phase "
-            "allocation to a more conservative retirement-phase allocation when "
-            "distributions begin. The transition is sharp — the portfolio rebalances "
-            "once at the start of the retirement phase."
-        )
-        fig3_caption = (
-            f"Figure 3 — {n_scen} allocation strateg"
-            f"{'ies' if n_scen > 1 else 'y'} evaluated. Top row shows the "
-            f"accumulation-phase allocation; bottom row shows the post-retirement "
-            f"allocation. Gold arrows mark scenarios that rebalance at the start of "
-            f"distributions."
-        )
-    else:
-        alloc_intro = (
-            "Each allocation maintains the same underlying asset classes — U.S. equity and "
-            "U.S. fixed income — and the same distribution policy. The variable across scenarios "
-            "is the equity weighting and/or distribution amount. Higher equity weights raise both "
-            "expected return and expected volatility."
-        )
-        fig3_caption = (
-            f"Figure 3 — {n_scen} target allocation"
-            f"{'s' if n_scen > 1 else ''} evaluated."
-        )
-    story.append(Paragraph(alloc_intro, P_BODY))
-
-    # Scale the allocation chart proportionally within a bounding box so the
-    # pies stay perfectly circular. A fixed width+height would stretch the
-    # image to the box's aspect ratio and render the circles as ellipses.
-    box_h = 3.6 * inch if any_glide else 2.3 * inch
-    alloc_img = Image(img_alloc_buf, width=7.0 * inch, height=box_h,
-                      kind="proportional")
-    alloc_img.hAlign = "CENTER"
-    story.append(alloc_img)
-    story.append(Paragraph(fig3_caption, P_FIGCAP))
-
-    story.extend(section_header("Key Findings"))
-    for r in results:
-        s = r["scenario"]
-        if s.contribution_years > 0 and s.annual_contribution > 0:
-            cf_desc = (
-                f"${s.annual_contribution:,.0f}/yr contributed Yrs 1–{s.contribution_years}, "
-                f"then ${s.annual_distribution:,.0f}/yr distributed Yrs "
-                f"{s.distribution_start_year}–{inputs.horizon_years}"
-            )
-        else:
-            cf_desc = f"${s.annual_distribution:,.0f}/yr distributed"
-
-        # Allocation header: "60% Eq / 40% FI" for static, glide-aware for glide
-        if s.has_glide_path:
-            alloc_header = (
-                f"{int(s.eq_weight*100)}/{int(s.fi_weight*100)} accumulation → "
-                f"{int(s.retirement_eq_weight*100)}/"
-                f"{int((1-s.retirement_eq_weight)*100)} retirement"
-            )
-            ret_text = (
-                f"Blended expected return: {r['mu_a_acc']*100:.2f}% (accumulation) → "
-                f"{r['mu_a_ret']*100:.2f}% (retirement)."
-            )
-        else:
-            alloc_header = (f"{int(s.eq_weight*100)}% Equity / "
-                            f"{int(s.fi_weight*100)}% Fixed Income")
-            ret_text = (f"Blended expected return: {r['mu_a']*100:.2f}%; "
-                        f"annual volatility: {r['sig_a']*100:.2f}%.")
-
-        finding = (
-            f"<b>{s.name} — {alloc_header}, {cf_desc}:</b> "
-            f"At the median, this allocation projects a Year-{inputs.horizon_years} portfolio "
-            f"value of <b>{fmt_m(r['median_yfinal'])}</b>, with a 20th–80th percentile range of "
-            f"{fmt_m(r['p20_yfinal'])} to {fmt_m(r['p80_yfinal'])}. "
-            f"Chance of success (portfolio not depleted): <b>{(1 - r['p_ruin'])*100:.2f}%</b>. "
-            f"Probability of ending above the initial ${inputs.initial/1e6:.1f}M investment: "
-            f"<b>{r['p_above_init']*100:.1f}%</b>. "
-            f"{ret_text}"
-        )
-        story.append(Paragraph(finding, P_BODY))
-
+    # ==================== KEY ASSUMPTIONS & DISCLOSURES (end of report) ======
     story.append(Spacer(1, 8))
     contrib_note = ""
     if has_contrib:
