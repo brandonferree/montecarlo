@@ -2795,7 +2795,7 @@ def main():
 
         initial = dollar_input(
             "Initial Investment ($)",
-            default=5_400_000,
+            default=3_000_000,
             key="initial",
             min_value=100_000,
             max_value=1_000_000_000,
@@ -2881,9 +2881,9 @@ def main():
     n_scen = st.radio("Number of scenarios", [1, 2, 3], index=2, horizontal=True)
 
     default_scenarios = [
-        ("Scenario A", 60, 225_000, 0,  0),
-        ("Scenario B", 70, 225_000, 0,  0),
-        ("Scenario C", 80, 225_000, 0,  0),
+        ("Scenario A", 60, 100_000, 0,  0),
+        ("Scenario B", 70, 100_000, 0,  0),
+        ("Scenario C", 80, 100_000, 0,  0),
     ]
 
     # ----- Shared one-time / installment inflows (note receivable, etc.) -----
