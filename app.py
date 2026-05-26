@@ -150,6 +150,35 @@ class Scenario:
 
 
 @dataclass
+class InflowEvent:
+    """
+    A one-time or installment cash INFLOW into the portfolio — e.g. proceeds
+    from a note receivable, a property sale, an inheritance, or a deferred-comp
+    payout.
+
+    Amounts are entered in today's (Year-1) dollars and inflated forward each
+    year, the same convention used for contributions and distributions. Inflows
+    are shared across all scenarios so the allocations stay directly comparable.
+
+    `start_year` is 1-indexed; the inflow is received in years
+    start_year .. start_year + years - 1 (years == 1 → a single lump sum).
+    """
+    amount: float            # annual amount in today's (Year-1) dollars
+    start_year: int          # 1-indexed first year received
+    years: int = 1           # number of years received (1 = one-time lump sum)
+    label: str = "Other income"
+
+    def amount_in_year(self, year_1_indexed: int, inflation: float) -> float:
+        """Nominal inflow for a given year (0 outside the receipt window)."""
+        if self.amount <= 0 or self.years <= 0:
+            return 0.0
+        end_year = self.start_year + self.years - 1
+        if self.start_year <= year_1_indexed <= end_year:
+            return self.amount * (1 + inflation) ** (year_1_indexed - 1)
+        return 0.0
+
+
+@dataclass
 class SimInputs:
     initial: float
     horizon_years: int
@@ -157,6 +186,9 @@ class SimInputs:
     distribution_frequency: str       # "Annual" | "Quarterly" | "Monthly"
     return_assumptions: ReturnAssumptions
     scenarios: List[Scenario]
+    # Shared one-time / installment inflows (note receivable, etc.) applied to
+    # every scenario. Empty by default.
+    extra_inflows: List[InflowEvent] = field(default_factory=list)
     n_paths: int = 10_000
     seed: int = 20260501
 
@@ -256,12 +288,20 @@ def simulate_scenario(scen: Scenario, inputs: SimInputs, seed_offset: int) -> di
             annual_dist = scen.annual_distribution * infl_factor
             per_period_cf = annual_dist / k
 
+        # Shared extra inflows (note receivable, etc.). amount_in_year already
+        # inflates to this year's nominal dollars. Added to the balance every
+        # period, in any phase (accumulation or distribution).
+        annual_inflow = sum(
+            ev.amount_in_year(y, inputs.inflation) for ev in inputs.extra_inflows
+        )
+        per_period_inflow = annual_inflow / k
+
         # Parametric draw — recompute (mu, sigma) for this year's weights.
         mu_a_y, sig_a_y = blended_params(eq_w_y, fi_w_y, ra)
         mu_p = mu_a_y / k
         sig_p = sig_a_y / np.sqrt(k)
         for _ in range(k):
-            bal = bal - per_period_cf
+            bal = bal - per_period_cf + per_period_inflow
             bal = np.maximum(bal, 0.0)
             r = rng.normal(mu_p, sig_p, size=n)
             bal = np.maximum(bal * (1 + r), 0.0)
@@ -310,6 +350,7 @@ def simulate_scenario(scen: Scenario, inputs: SimInputs, seed_offset: int) -> di
         "p_above_init": float(np.mean(yr_final > inputs.initial)),
         "total_contributed": total_contributed(scen, inputs.inflation),
         "total_distributed": total_distributed(scen, inputs.inflation, yrs),
+        "total_inflows": total_extra_inflows(inputs),
     }
 
 
@@ -338,6 +379,15 @@ def total_distributed(scen: Scenario, inflation: float, total_years: int) -> flo
     return sum(
         scen.annual_distribution * (1 + inflation) ** (y - 1)
         for y in range(start, total_years + 1)
+    )
+
+
+def total_extra_inflows(inputs: SimInputs) -> float:
+    """Sum of all shared extra inflows in nominal dollars across the horizon."""
+    return sum(
+        ev.amount_in_year(y, inputs.inflation)
+        for ev in inputs.extra_inflows
+        for y in range(1, inputs.horizon_years + 1)
     )
 
 
@@ -1036,6 +1086,29 @@ def build_pdf(results: List[dict], inputs: SimInputs,
             "the early withdrawal years."
         )
 
+    # Optional additional-income paragraph (shared note receivable / installments)
+    inflow_text = ""
+    if inputs.extra_inflows:
+        parts = []
+        for ev in inputs.extra_inflows:
+            if ev.years <= 1:
+                parts.append(
+                    f"{ev.label} — a one-time ${ev.amount:,.0f} (today's $) in "
+                    f"Year {ev.start_year}"
+                )
+            else:
+                end_yr = ev.start_year + ev.years - 1
+                parts.append(
+                    f"{ev.label} — ${ev.amount:,.0f}/yr (today's $) in Years "
+                    f"{ev.start_year}–{end_yr}"
+                )
+        inflow_text = (
+            "<br/><br/>"
+            "<b>Additional income:</b> The following inflows are added to the "
+            "portfolio in every scenario, entered in today's dollars and inflated "
+            "forward to preserve real value: " + "; ".join(parts) + "."
+        )
+
     exec_text = (
         f"This report presents a {inputs.horizon_years}-year simulation for a "
         f"${inputs.initial:,.0f} portfolio, evaluating {n_scen} allocation "
@@ -1044,6 +1117,7 @@ def build_pdf(results: List[dict], inputs: SimInputs,
         f"{inputs.inflation*100:.1f}% annually to maintain real purchasing power. "
         f"{contrib_phase_text}"
         f"{glide_text}"
+        f"{inflow_text}"
         f"<br/><br/>"
         f"{method_text} "
         f"The simulation runs {inputs.n_paths:,} independent paths per scenario."
@@ -1206,7 +1280,7 @@ def build_pdf(results: List[dict], inputs: SimInputs,
         + [fmt_m(r["p20_yfinal"]) for r in results],
         [f"80th Percentile (Year {inputs.horizon_years})"]
         + [fmt_m(r["p80_yfinal"]) for r in results],
-        ["Probability of Ruin"] + [fmt_pct(r["p_ruin"], 1) for r in results],
+        ["Chance of Success"] + [fmt_pct(1 - r["p_ruin"], 1) for r in results],
         ["Prob. Exceeds Initial Investment"]
         + [fmt_pct(r["p_above_init"], 1) for r in results],
     ]
@@ -1272,7 +1346,7 @@ def build_pdf(results: List[dict], inputs: SimInputs,
         + [fmt_m(r["p80_yfinal"]) for r in results],
         [f"Interquartile Range (Yr {inputs.horizon_years})"]
         + [fmt_m(r["iqr_yfinal"]) for r in results],
-        ["Probability of Portfolio Ruin"] + [fmt_pct(r["p_ruin"], 2) for r in results],
+        ["Chance of Success (not depleted)"] + [fmt_pct(1 - r["p_ruin"], 2) for r in results],
         [f"Prob. Above Initial Inv. (Yr {inputs.horizon_years})"]
         + [fmt_pct(r["p_above_init"], 1) for r in results],
         ["Blended Annual Mean Return"] + [fmt_pct(r["mu_a"], 2) for r in results],
@@ -1359,7 +1433,7 @@ def build_pdf(results: List[dict], inputs: SimInputs,
             f"At the median, this allocation projects a Year-{inputs.horizon_years} portfolio "
             f"value of <b>{fmt_m(r['median_yfinal'])}</b>, with a 20th–80th percentile range of "
             f"{fmt_m(r['p20_yfinal'])} to {fmt_m(r['p80_yfinal'])}. "
-            f"Probability of portfolio ruin: <b>{r['p_ruin']*100:.2f}%</b>. "
+            f"Chance of success (portfolio not depleted): <b>{(1 - r['p_ruin'])*100:.2f}%</b>. "
             f"Probability of ending above the initial ${inputs.initial/1e6:.1f}M investment: "
             f"<b>{r['p_above_init']*100:.1f}%</b>. "
             f"{ret_text}"
@@ -1373,6 +1447,20 @@ def build_pdf(results: List[dict], inputs: SimInputs,
             "Contribution and distribution amounts are entered in today's (Year-1) dollars "
             "and inflated forward at the inflation rate to preserve real purchasing power | "
         )
+    inflow_note = ""
+    if inputs.extra_inflows:
+        inflow_note = (
+            "Additional income inflows applied to every scenario (today's $, "
+            "inflated forward): "
+            + "; ".join(
+                (f"{ev.label} ${ev.amount:,.0f} one-time Yr {ev.start_year}"
+                 if ev.years <= 1 else
+                 f"{ev.label} ${ev.amount:,.0f}/yr Yrs {ev.start_year}–"
+                 f"{ev.start_year + ev.years - 1}")
+                for ev in inputs.extra_inflows
+            )
+            + " | "
+        )
     ra2 = inputs.return_assumptions
     ret_text = (
         f"Equity expected return {ra2.eq_mu*100:.2f}% (σ = {ra2.eq_sigma*100:.2f}%); "
@@ -1385,6 +1473,7 @@ def build_pdf(results: List[dict], inputs: SimInputs,
     assump = (
         f"<b>Key Assumptions & Disclosures:</b> Initial investment ${inputs.initial:,.0f} | "
         f"{contrib_note}"
+        f"{inflow_note}"
         f"Distribution frequency: {inputs.distribution_frequency} | "
         f"Annual escalation: {inputs.inflation*100:.1f}% | Time horizon: {inputs.horizon_years} years | "
         f"{ret_text}"
@@ -2846,6 +2935,20 @@ def main():
         freq = st.selectbox(
             "Distribution Frequency", ["Annual", "Quarterly", "Monthly"], index=1
         )
+        amount_basis = st.radio(
+            "Enter contribution / distribution amounts as",
+            ["Annual", "Monthly"], index=0, horizontal=True,
+            help=(
+                "How you'd like to type the contribution and distribution amounts. "
+                "'Monthly' multiplies by 12 to get the annual figure used in the "
+                "simulation — handy since many clients think in monthly income "
+                "terms. This is separate from Distribution Frequency, which is how "
+                "often the money is actually paid out."
+            ),
+        )
+        monthly_entry = (amount_basis == "Monthly")
+        unit_div = 12 if monthly_entry else 1
+        unit_word = "Monthly" if monthly_entry else "Annual"
 
         st.divider()
         st.subheader("Return Assumptions")
@@ -2911,6 +3014,52 @@ def main():
         ("Scenario C", 80, 225_000, 0,  0),
     ]
 
+    # ----- Shared one-time / installment inflows (note receivable, etc.) -----
+    # Applied identically to every scenario so the allocations stay comparable.
+    st.markdown(
+        "##### Note / Other Income &nbsp;·&nbsp; optional, shared across all scenarios"
+    )
+    st.caption(
+        "Model one-time or installment inflows — e.g. a note receivable, property "
+        "sale, or inheritance. Amounts are in today's dollars, inflated forward, "
+        "and added to every scenario."
+    )
+    n_inflows = st.number_input(
+        "Number of income streams", min_value=0, max_value=3, value=0, step=1,
+        key="n_inflows", help="Set to 0 if there is no extra income to model.",
+    )
+    extra_inflows: List[InflowEvent] = []
+    if int(n_inflows) > 0:
+        icols = st.columns(int(n_inflows))
+        for j, icol in enumerate(icols):
+            with icol:
+                in_label = st.text_input(
+                    "Label", value=f"Income {j + 1}", key=f"inflow_label_{j}",
+                )
+                in_amt = dollar_input(
+                    "Annual Amount ($, today's dollars)",
+                    default=50_000, key=f"inflow_amt_{j}",
+                    min_value=0, max_value=10_000_000,
+                    help="Amount received per year (today's dollars). For a "
+                         "one-time payment, set Number of Years to 1.",
+                )
+                in_start = st.number_input(
+                    "Start Year", min_value=1, max_value=int(horizon),
+                    value=1, step=1, key=f"inflow_start_{j}",
+                )
+                in_years = st.number_input(
+                    "Number of Years (1 = one-time)",
+                    min_value=1, max_value=int(horizon),
+                    value=1, step=1, key=f"inflow_years_{j}",
+                )
+                extra_inflows.append(InflowEvent(
+                    amount=float(in_amt),
+                    start_year=int(in_start),
+                    years=int(in_years),
+                    label=in_label.strip() or f"Income {j + 1}",
+                ))
+    st.divider()
+
     scenarios: List[Scenario] = []
     cols = st.columns(n_scen)
     for i, col in enumerate(cols):
@@ -2943,14 +3092,16 @@ def main():
                 help="Number of years to contribute before distributions begin. "
                      "Set to 0 if there is no contribution phase.",
             )
-            contrib_amt = dollar_input(
-                "Annual Contribution ($, today's dollars)",
-                default=ca_def, key=f"ca_{i}",
+            contrib_amt_entered = dollar_input(
+                f"{unit_word} Contribution ($, today's dollars)",
+                default=int(round(ca_def / unit_div)),
+                key=f"ca_{i}_{'m' if monthly_entry else 'a'}",
                 min_value=0, max_value=10_000_000,
                 disabled=(contrib_yrs == 0),
                 help="In today's dollars. Type 50000, 50,000, or 50K. "
                      "Will be inflated forward automatically.",
             )
+            contrib_amt = contrib_amt_entered * unit_div  # annualize for the model
 
             # ----- Distribution phase -----
             dist_start_year = int(contrib_yrs) + 1
@@ -2964,13 +3115,15 @@ def main():
                 f"DISTRIBUTION PHASE{dist_label_suffix.upper()}</div>",
                 unsafe_allow_html=True,
             )
-            dist = dollar_input(
-                "Annual Distribution ($, today's dollars)",
-                default=dist_def, key=f"dist_{i}",
+            dist_entered = dollar_input(
+                f"{unit_word} Distribution ($, today's dollars)",
+                default=int(round(dist_def / unit_div)),
+                key=f"dist_{i}_{'m' if monthly_entry else 'a'}",
                 min_value=0, max_value=10_000_000,
                 help="In today's dollars. Type 225000, 225,000, or 225K. "
                      "Will be inflated forward to maintain real purchasing power.",
             )
+            dist = dist_entered * unit_div  # annualize for the model
 
             # Show what the first nominal distribution will be (for transparency)
             if contrib_yrs > 0:
@@ -3051,6 +3204,7 @@ def main():
         distribution_frequency=freq,
         return_assumptions=ra,
         scenarios=scenarios,
+        extra_inflows=extra_inflows,
         n_paths=int(n_paths),
     )
 
@@ -3107,7 +3261,7 @@ def main():
                 f"&#36;{r['p20_yfinal']/1e6:,.2f}M – "
                 f"&#36;{r['p80_yfinal']/1e6:,.2f}M"
             )
-            p_ruin_str = f"{r['p_ruin']*100:.2f}%"
+            success_str = f"{(1 - r['p_ruin'])*100:.2f}%"
             p_above_str = f"{r['p_above_init']*100:.1f}%"
 
             st.markdown(
@@ -3124,8 +3278,8 @@ def main():
                     <div class="becker-preview-value">{band_str}</div>
                   </div>
                   <div class="becker-preview-row">
-                    <div class="becker-preview-label">Probability of Ruin</div>
-                    <div class="becker-preview-value">{p_ruin_str}</div>
+                    <div class="becker-preview-label">Chance of Success</div>
+                    <div class="becker-preview-value">{success_str}</div>
                   </div>
                   <div class="becker-preview-row">
                     <div class="becker-preview-label">P(Exceeds Initial)</div>
