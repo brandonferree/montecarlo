@@ -232,6 +232,15 @@ PRESETS = {
 FREQ_TO_PER_YEAR = {"Annual": 1, "Quarterly": 4, "Monthly": 12}
 
 
+def _pct(weight: float) -> int:
+    """Allocation weight (0–1) → integer percent, rounded.
+
+    Avoids float-truncation artifacts from int(): e.g. int(0.85 * 100) == 84
+    and int((1 - 0.8) * 100) == 19, whereas round() yields 85 and 20.
+    """
+    return int(round(weight * 100))
+
+
 # =============================================================================
 # Simulation
 # =============================================================================
@@ -424,7 +433,7 @@ def chart_paths_with_bands(results: List[dict], inputs: SimInputs) -> io.BytesIO
         ax.fill_between(years_axis, r["p20_path"] / 1e6, r["p80_path"] / 1e6,
                         color=color, alpha=0.15, linewidth=0)
         scen = r["scenario"]
-        label = (f"{scen.name} — {int(scen.eq_weight*100)}/{int(scen.fi_weight*100)} "
+        label = (f"{scen.name} — {_pct(scen.eq_weight)}/{_pct(scen.fi_weight)} "
                  f"(Median)")
         ax.plot(years_axis, r["median_path"] / 1e6, color=color, linewidth=2.4, label=label)
 
@@ -479,7 +488,7 @@ def chart_yfinal_distributions(results: List[dict], inputs: SimInputs) -> io.Byt
         ax.axvline(median_m, color="#C0392B", linestyle="--", linewidth=1.6,
                    label=f"Median: ${median_m:.1f}M")
         scen = r["scenario"]
-        ax.set_title(f"{scen.name}\n{int(scen.eq_weight*100)}/{int(scen.fi_weight*100)}",
+        ax.set_title(f"{scen.name}\n{_pct(scen.eq_weight)}/{_pct(scen.fi_weight)}",
                      fontsize=11)
         ax.set_xlabel(f"Year-{inputs.horizon_years} Value ($M)", fontsize=9)
         if ax is axes[0]:
@@ -537,10 +546,10 @@ def chart_allocations(results: List[dict]) -> io.BytesIO:
             ax.pie(sizes, colors=[NAVY_HEX, GOLD_HEX], startangle=90,
                    wedgeprops=dict(edgecolor="white", linewidth=2))
             ax.set_title(
-                f"{scen.name} — {int(scen.eq_weight*100)}% / {int(scen.fi_weight*100)}%",
+                f"{scen.name} — {_pct(scen.eq_weight)}% / {_pct(scen.fi_weight)}%",
                 fontsize=10, color=NAVY_HEX, fontweight="bold", pad=8,
             )
-            ax.text(0, 0.10, f"{int(scen.eq_weight*100)}%", ha="center", va="center",
+            ax.text(0, 0.10, f"{_pct(scen.eq_weight)}%", ha="center", va="center",
                     fontsize=11, color="white", fontweight="bold")
             ax.text(0, -0.20, "Equity", ha="center", va="center",
                     fontsize=8, color="white")
@@ -601,10 +610,10 @@ def chart_allocations(results: List[dict]) -> io.BytesIO:
         _draw_pie(ax_top, scen.eq_weight * 100, scen.fi_weight * 100)
         if scen.has_glide_path:
             top_label = (f"{scen.name}\nAccumulation — "
-                         f"{int(scen.eq_weight*100)}/{int(scen.fi_weight*100)}")
+                         f"{_pct(scen.eq_weight)}/{_pct(scen.fi_weight)}")
         else:
             top_label = (f"{scen.name} — "
-                         f"{int(scen.eq_weight*100)}/{int(scen.fi_weight*100)}\n"
+                         f"{_pct(scen.eq_weight)}/{_pct(scen.fi_weight)}\n"
                          f"All Years")
         ax_top.set_title(top_label, fontsize=10, color=NAVY_HEX,
                          fontweight="bold", pad=8)
@@ -828,10 +837,10 @@ def build_pdf(results: List[dict], inputs: SimInputs,
 
     def _alloc_str(s: Scenario) -> str:
         """e.g. '60/40' for static, '80/20→60/40' for glide path."""
-        base = f"{int(s.eq_weight*100)}/{int(s.fi_weight*100)}"
+        base = f"{_pct(s.eq_weight)}/{_pct(s.fi_weight)}"
         if s.has_glide_path:
-            ret = (f"{int(s.retirement_eq_weight*100)}/"
-                   f"{int((1.0-s.retirement_eq_weight)*100)}")
+            ret = (f"{_pct(s.retirement_eq_weight)}/"
+                   f"{_pct(1.0 - s.retirement_eq_weight)}")
             return f"{base}→{ret}"
         return base
 
@@ -1082,7 +1091,10 @@ def build_pdf(results: List[dict], inputs: SimInputs,
     # Enlarged for a more visual, less text-heavy page. Scaled proportionally
     # within the bounding box so the pies stay perfectly circular.
     box_w = 7.3 * inch
-    box_h = 4.7 * inch if any_glide else 3.3 * inch
+    # Glide uses a taller dual-row chart; keep it small enough that the whole
+    # Allocation Comparison still fits below the Return Assumptions table on
+    # one page (static scenarios get a shorter single-row chart).
+    box_h = 4.0 * inch if any_glide else 3.3 * inch
     alloc_img = Image(img_alloc_buf, width=box_w, height=box_h,
                       kind="proportional")
     alloc_img.hAlign = "CENTER"
@@ -1102,10 +1114,10 @@ def build_pdf(results: List[dict], inputs: SimInputs,
     story.extend(section_header(f"{inputs.horizon_years}-Year Outcome Summary"))
     def _scen_col_header(s: Scenario) -> str:
         if s.has_glide_path:
-            return (f"{s.name}\n({int(s.eq_weight*100)}/{int(s.fi_weight*100)} → "
-                    f"{int(s.retirement_eq_weight*100)}/"
-                    f"{int((1-s.retirement_eq_weight)*100)})")
-        return (f"{s.name}\n({int(s.eq_weight*100)}% / {int(s.fi_weight*100)}%)")
+            return (f"{s.name}\n({_pct(s.eq_weight)}/{_pct(s.fi_weight)} → "
+                    f"{_pct(s.retirement_eq_weight)}/"
+                    f"{_pct(1 - s.retirement_eq_weight)})")
+        return (f"{s.name}\n({_pct(s.eq_weight)}% / {_pct(s.fi_weight)}%)")
     summary_header = ["Metric"] + [_scen_col_header(r['scenario']) for r in results]
 
     rows = []
@@ -1115,13 +1127,13 @@ def build_pdf(results: List[dict], inputs: SimInputs,
     if any_glide:
         rows.append(
             ["Accumulation Allocation (Eq / FI)"]
-            + [f"{int(r['scenario'].eq_weight*100)}% / "
-               f"{int(r['scenario'].fi_weight*100)}%" for r in results]
+            + [f"{_pct(r['scenario'].eq_weight)}% / "
+               f"{_pct(r['scenario'].fi_weight)}%" for r in results]
         )
         rows.append(
             ["Retirement Allocation (Eq / FI)"]
-            + [(f"{int(r['scenario'].retirement_eq_weight*100)}% / "
-                f"{int((1-r['scenario'].retirement_eq_weight)*100)}%"
+            + [(f"{_pct(r['scenario'].retirement_eq_weight)}% / "
+                f"{_pct(1 - r['scenario'].retirement_eq_weight)}%"
                 if r['scenario'].has_glide_path else "(no change)")
                for r in results]
         )
@@ -3114,12 +3126,12 @@ def main():
             # Glide-aware allocation label for the preview header
             if s.has_glide_path:
                 alloc_label = (
-                    f"{int(s.eq_weight*100)}/{int(s.fi_weight*100)} → "
-                    f"{int(s.retirement_eq_weight*100)}/"
-                    f"{int((1-s.retirement_eq_weight)*100)}"
+                    f"{_pct(s.eq_weight)}/{_pct(s.fi_weight)} → "
+                    f"{_pct(s.retirement_eq_weight)}/"
+                    f"{_pct(1 - s.retirement_eq_weight)}"
                 )
             else:
-                alloc_label = f"{int(s.eq_weight*100)}/{int(s.fi_weight*100)}"
+                alloc_label = f"{_pct(s.eq_weight)}/{_pct(s.fi_weight)}"
 
             # Use &#36; (HTML entity) for dollar signs so Streamlit's markdown
             # parser doesn't pair them up and render the middle as LaTeX math.
