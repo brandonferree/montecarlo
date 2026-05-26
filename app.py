@@ -1563,6 +1563,7 @@ def simulate_goal_scenario(
     initial_savings: float,
     inflation: float,
     return_assumptions: ReturnAssumptions,
+    extra_inflows: Optional[List[InflowEvent]] = None,
     n_paths: int = 5_000,
     seed: int = 20260501,
     seed_offset: int = 0,
@@ -1585,6 +1586,7 @@ def simulate_goal_scenario(
         distribution_frequency="Annual",  # annual cash flow for goal-planning
         return_assumptions=return_assumptions,
         scenarios=[s],
+        extra_inflows=extra_inflows or [],
         n_paths=n_paths,
         seed=seed,
     )
@@ -1615,6 +1617,7 @@ def find_required_annual_savings(
     target_success_prob: float,
     inflation: float,
     return_assumptions: ReturnAssumptions,
+    extra_inflows: Optional[List[InflowEvent]] = None,
     n_paths: int = 5_000,
     max_iters: int = 18,
     rel_tol: float = 0.015,
@@ -1652,7 +1655,8 @@ def find_required_annual_savings(
     def prob_at(savings: float) -> Tuple[float, dict]:
         r = simulate_goal_scenario(
             goal, savings, initial_savings, inflation,
-            return_assumptions, n_paths=n_paths, seed=seed, seed_offset=0,
+            return_assumptions, extra_inflows=extra_inflows,
+            n_paths=n_paths, seed=seed, seed_offset=0,
         )
         return r["success_prob"], r
 
@@ -1729,6 +1733,7 @@ def required_savings_at_confidence_levels(
     confidence_levels: List[float],
     inflation: float,
     return_assumptions: ReturnAssumptions,
+    extra_inflows: Optional[List[InflowEvent]] = None,
     n_paths: int = 5_000,
     seed: int = 20260501,
 ) -> List[dict]:
@@ -1747,6 +1752,7 @@ def required_savings_at_confidence_levels(
             target_success_prob=cl,
             inflation=inflation,
             return_assumptions=return_assumptions,
+            extra_inflows=extra_inflows,
             n_paths=n_paths,
             seed=seed,
         )
@@ -1951,6 +1957,7 @@ def build_savings_goal_pdf(
     return_assumptions: ReturnAssumptions,
     n_paths: int,
     confidence_levels: List[float],
+    extra_inflows: Optional[List[InflowEvent]] = None,
     prep_date: str | None = None,
 ) -> bytes:
     """
@@ -2306,6 +2313,30 @@ def build_savings_goal_pdf(
         f"from a normal distribution parameterized to those annual figures."
     )
 
+    # Optional additional-income paragraph (shared note receivable / installments)
+    inflow_text = ""
+    if extra_inflows:
+        parts = []
+        for ev in extra_inflows:
+            if ev.years <= 1:
+                parts.append(
+                    f"{ev.label} — a one-time ${ev.amount:,.0f} (today's $) in "
+                    f"Year {ev.start_year}"
+                )
+            else:
+                end_yr = ev.start_year + ev.years - 1
+                parts.append(
+                    f"{ev.label} — ${ev.amount:,.0f}/yr (today's $) in Years "
+                    f"{ev.start_year}–{end_yr}"
+                )
+        inflow_text = (
+            "<br/><br/>"
+            "<b>Additional income:</b> The following inflows are added to the "
+            "portfolio in every scenario, entered in today's dollars and inflated "
+            "forward; they reduce the savings required to hit the target: "
+            + "; ".join(parts) + "."
+        )
+
     exec_text = (
         f"This report calculates the <b>minimum annual savings</b> required to support a "
         f"desired retirement income stream with a target success probability of "
@@ -2317,6 +2348,7 @@ def build_savings_goal_pdf(
         f"All amounts are entered in today's (Year-1) dollars and inflated forward at "
         f"{inflation*100:.1f}% annually to preserve real purchasing power."
         f"{glide_text}"
+        f"{inflow_text}"
         f"<br/><br/>"
         f"{method_text} "
         f"For each scenario, the simulator runs {n_paths:,} independent paths and a "
@@ -2494,10 +2526,26 @@ def build_savings_goal_pdf(
         f"(σ = {ra.fi_sigma*100:.2f}%); source: {ra.label} | "
     )
 
+    inflow_note = ""
+    if extra_inflows:
+        inflow_note = (
+            "Additional income inflows applied to every scenario (today's $, "
+            "inflated forward): "
+            + "; ".join(
+                (f"{ev.label} ${ev.amount:,.0f} one-time Yr {ev.start_year}"
+                 if ev.years <= 1 else
+                 f"{ev.label} ${ev.amount:,.0f}/yr Yrs {ev.start_year}–"
+                 f"{ev.start_year + ev.years - 1}")
+                for ev in extra_inflows
+            )
+            + " | "
+        )
+
     assump = (
         f"<b>Key Assumptions &amp; Disclosures:</b> Current savings ${initial_savings:,.0f} | "
         f"Income and savings amounts are entered in today's (Year-1) dollars and inflated "
         f"forward at the inflation rate to preserve real purchasing power | "
+        f"{inflow_note}"
         f"Annual cash-flow frequency | Annual escalation: {inflation*100:.1f}% | "
         f"Target success probability: {int(target_success_prob*100)}% (P[portfolio "
         f"survives all retirement years] ≥ target) | "

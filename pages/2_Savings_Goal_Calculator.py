@@ -32,6 +32,8 @@ from app import (  # noqa: E402
     MIDNIGHT_RGB, CANYON_RGB,
     # Engine — return assumptions
     BCM_CMA_2026, ReturnAssumptions,
+    # Engine — shared inflows
+    InflowEvent,
     # Engine — savings goal
     SavingsGoalScenario,
     find_required_annual_savings,
@@ -136,7 +138,7 @@ def main():
     # crashes (or shows "—") on first load after a deploy with no input
     # change to trigger a recompute. The cache_data bump on the same key
     # handles the cache layer; this handles the session-state layer.
-    _CURRENT_SCHEMA_VERSION = "v2-p_above_retirement"
+    _CURRENT_SCHEMA_VERSION = "v3-extra-inflows"
     if (st.session_state.get("sg_schema_version")
             != _CURRENT_SCHEMA_VERSION):
         for k in ("sg_results", "sg_sensitivity", "sg_inputs_snapshot",
@@ -160,6 +162,19 @@ def main():
         inflation = st.slider(
             "Inflation Rate (%)", 0.0, 8.0, 3.0, step=0.25, key="sg_infl"
         ) / 100
+        amount_basis = st.radio(
+            "Enter income amounts as",
+            ["Annual", "Monthly"], index=0, horizontal=True,
+            key="sg_amount_basis",
+            help=(
+                "How you'd like to type the desired retirement income. 'Monthly' "
+                "multiplies by 12 to get the annual figure used in the analysis — "
+                "handy since many clients think in monthly income terms."
+            ),
+        )
+        monthly_entry = (amount_basis == "Monthly")
+        unit_div = 12 if monthly_entry else 1
+        unit_word = "Monthly" if monthly_entry else "Annual"
         target_pct = st.slider(
             "Target Success Probability (%)", 50, 99, 80, step=1,
             key="sg_target",
@@ -202,6 +217,53 @@ def main():
         ("Retire in 10 yrs", 10, 30, 200_000, 80, True,  60),
     ]
 
+    # ----- Shared one-time / installment inflows (note receivable, etc.) -----
+    # Applied identically to every scenario; they reduce the savings required.
+    st.markdown(
+        "##### Note / Other Income &nbsp;·&nbsp; optional, shared across all scenarios"
+    )
+    st.caption(
+        "Model one-time or installment inflows — e.g. a note receivable, property "
+        "sale, or inheritance. Amounts are in today's dollars, inflated forward, "
+        "and added to every scenario. Year 1 is the first accumulation year; "
+        "retirement begins after the Years-to-Retirement period."
+    )
+    n_inflows = st.number_input(
+        "Number of income streams", min_value=0, max_value=3, value=0, step=1,
+        key="sg_n_inflows", help="Set to 0 if there is no extra income to model.",
+    )
+    extra_inflows: List[InflowEvent] = []
+    if int(n_inflows) > 0:
+        icols = st.columns(int(n_inflows))
+        for j, icol in enumerate(icols):
+            with icol:
+                in_label = st.text_input(
+                    "Label", value=f"Income {j + 1}", key=f"sg_inflow_label_{j}",
+                )
+                in_amt = dollar_input(
+                    "Annual Amount ($, today's dollars)",
+                    default=50_000, key=f"sg_inflow_amt_{j}",
+                    min_value=0, max_value=10_000_000,
+                    help="Amount received per year (today's dollars). For a "
+                         "one-time payment, set Number of Years to 1.",
+                )
+                in_start = st.number_input(
+                    "Start Year", min_value=1, max_value=99,
+                    value=1, step=1, key=f"sg_inflow_start_{j}",
+                )
+                in_years = st.number_input(
+                    "Number of Years (1 = one-time)",
+                    min_value=1, max_value=99,
+                    value=1, step=1, key=f"sg_inflow_years_{j}",
+                )
+                extra_inflows.append(InflowEvent(
+                    amount=float(in_amt),
+                    start_year=int(in_start),
+                    years=int(in_years),
+                    label=in_label.strip() or f"Income {j + 1}",
+                ))
+    st.divider()
+
     goals: List[SavingsGoalScenario] = []
     cols = st.columns(n_scen)
     for i, col in enumerate(cols):
@@ -238,15 +300,17 @@ def main():
                 f"INCOME TARGET</div>",
                 unsafe_allow_html=True,
             )
-            income = dollar_input(
-                "Desired Annual Income ($, today's dollars)",
-                default=inc_def, key=f"sg_inc_{i}",
+            income_entered = dollar_input(
+                f"Desired {unit_word} Income ($, today's dollars)",
+                default=int(round(inc_def / unit_div)),
+                key=f"sg_inc_{i}_{'m' if monthly_entry else 'a'}",
                 min_value=0, max_value=10_000_000,
                 help=(
-                    "Income you want to draw each year in retirement, in "
-                    "today's dollars. Will be inflated forward."
+                    "Income you want to draw in retirement, in today's dollars. "
+                    "Will be inflated forward."
                 ),
             )
+            income = income_entered * unit_div  # annualize for the model
 
             # ----- Allocation -----
             st.markdown(
@@ -328,13 +392,14 @@ def main():
             res = find_required_annual_savings(
                 goal=g, initial_savings=initial_savings,
                 target_success_prob=target_success, inflation=inflation,
-                return_assumptions=ra, n_paths=n_paths,
+                return_assumptions=ra, extra_inflows=extra_inflows,
+                n_paths=n_paths,
             )
             sens = required_savings_at_confidence_levels(
                 goal=g, initial_savings=initial_savings,
                 confidence_levels=[0.70, 0.80, 0.90],
                 inflation=inflation, return_assumptions=ra,
-                n_paths=n_paths,
+                extra_inflows=extra_inflows, n_paths=n_paths,
             )
             results.append(res)
             sensitivity.append(sens)
@@ -345,12 +410,14 @@ def main():
         # so stale @st.cache_data entries from older deploys (which lack the
         # new field) don't satisfy a cache hit and crash the renderer.
         # Bump this any time simulate_goal_scenario adds/renames a field.
-        _RESULT_SCHEMA_VERSION = "v2-p_above_retirement"
+        _RESULT_SCHEMA_VERSION = "v3-extra-inflows"
         cache_key = repr((
             _RESULT_SCHEMA_VERSION,
             tuple((g.name, g.years_to_retirement, g.years_in_retirement,
                    g.desired_annual_income, g.accumulation_eq_weight,
                    g.retirement_eq_weight) for g in goals),
+            tuple((ev.label, ev.amount, ev.start_year, ev.years)
+                  for ev in extra_inflows),
             initial_savings, target_success, inflation,
             ra.label, ra.eq_mu, ra.fi_mu, n_paths,
         ))
@@ -376,6 +443,7 @@ def main():
             "n_paths": n_paths,
             "confidence_levels": [0.70, 0.80, 0.90],
             "goals": goals,
+            "extra_inflows": extra_inflows,
         }
 
     # ----- Results display -----
@@ -585,6 +653,7 @@ def main():
                         return_assumptions=snapshot["return_assumptions"],
                         n_paths=snapshot["n_paths"],
                         confidence_levels=snapshot["confidence_levels"],
+                        extra_inflows=snapshot.get("extra_inflows", []),
                     )
                     st.session_state["sg_pdf_bytes"] = pdf_bytes
                     st.session_state["sg_pdf_filename"] = (
