@@ -2391,6 +2391,305 @@ def build_savings_goal_pdf(
     return buf.getvalue()
 
 
+def build_ss_pdf(results, best, snapshot, prep_date: str | None = None) -> bytes:
+    """
+    Becker-styled Social Security Optimizer report.
+
+    `results`  : List[ss_engine.StrategyResult] across the claim-age grid.
+    `best`      : the recommended ss_engine.StrategyResult.
+    `snapshot`  : dict from the page (hh, people, is_couple, gross_need,
+                  initial_portfolio, eq_pct, ra, inflation, tax_gross_up).
+
+    Mirrors build_savings_goal_pdf's layout: cover / disclaimer / recommended
+    strategy + assumptions / claim-grid chart / income-stream chart / survivor
+    analysis / top-strategies table / notes.
+    """
+    import ss_engine as se  # lazy: ss_engine imports app, avoid circular load
+
+    if prep_date is None:
+        prep_date = datetime.now().strftime("%B %d, %Y")
+    footer_date = "December 31, 2025"
+    PAGE_W, PAGE_H = LETTER
+    buf = io.BytesIO()
+
+    hh = snapshot["hh"]
+    people = snapshot["people"]
+    is_couple = snapshot["is_couple"]
+    ra = snapshot["ra"]
+    n_combos = len(results)
+
+    # Charts
+    img_grid = se.chart_strategy_grid(results, people)
+    img_stream = se.chart_ss_income_stream(hh, best.claim_ages)
+
+    # ----- Styles (same family as the other reports) -----
+    H_TITLE = ParagraphStyle("Title", fontName="Helvetica-Bold", fontSize=26,
+                             leading=30, textColor=NAVY, alignment=TA_LEFT, spaceAfter=6)
+    H_TAGLINE = ParagraphStyle("Tagline", fontName="Helvetica-Bold", fontSize=10,
+                               leading=14, textColor=GOLD, alignment=TA_LEFT, spaceAfter=10)
+    H_SECTION = ParagraphStyle("Section", fontName="Helvetica-Bold", fontSize=14,
+                               leading=18, textColor=NAVY, alignment=TA_LEFT,
+                               spaceBefore=10, spaceAfter=6)
+    P_KICKER = ParagraphStyle("Kicker", fontName="Helvetica-Bold", fontSize=8.5,
+                              leading=11, textColor=GOLD, alignment=TA_LEFT, spaceAfter=4)
+    P_BODY = ParagraphStyle("Body", fontName="Helvetica", fontSize=9.5, leading=13.5,
+                            textColor=TEXT_DARK, alignment=TA_JUSTIFY, spaceAfter=6)
+    P_FIGCAP = ParagraphStyle("FigCap", fontName="Helvetica-Oblique", fontSize=8.5,
+                              leading=11, textColor=TEXT_MED, alignment=TA_LEFT, spaceAfter=8)
+    P_DISCLAIM = ParagraphStyle("Disclaim", fontName="Helvetica", fontSize=8.5,
+                                leading=12, textColor=TEXT_DARK, alignment=TA_JUSTIFY, spaceAfter=6)
+    P_KEY_LABEL = ParagraphStyle("KeyLabel", fontName="Helvetica", fontSize=8,
+                                 leading=10, textColor=TEXT_MED, alignment=TA_LEFT)
+    P_COVER_FIELD_LABEL = ParagraphStyle("CovLabel", fontName="Helvetica", fontSize=8.5,
+                                         leading=10, textColor=TEXT_MED, alignment=TA_LEFT)
+    P_COVER_FIELD_VAL = ParagraphStyle("CovVal", fontName="Helvetica-Bold", fontSize=15,
+                                       leading=17, textColor=NAVY, alignment=TA_LEFT)
+
+    def cover_decoration(canv, doc):
+        canv.saveState()
+        canv.setFillColor(NAVY)
+        canv.rect(0, 0, 2.5 * inch, PAGE_H, stroke=0, fill=1)
+        canv.setFillColor(GOLD)
+        canv.rect(0, 0, PAGE_W, 0.35 * inch, stroke=0, fill=1)
+        canv.setFillColor(NAVY_DARK)
+        canv.setFont("Helvetica-Bold", 9)
+        canv.drawString(0.4 * inch, 0.13 * inch, "BECKER CAPITAL MANAGEMENT")
+        canv.setFillColor(colors.white)
+        canv.setFont("Helvetica-Oblique", 7.5)
+        canv.drawRightString(
+            PAGE_W - 0.4 * inch, 0.13 * inch,
+            "This report is hypothetical and for illustrative purposes only. Not investment advice.")
+        cx_5, cx_0, cy = 0.85 * inch, 1.75 * inch, 4.7 * inch
+        canv.setFillColor(NAVY_DARK)
+        canv.setFont("Helvetica-Bold", 110)
+        canv.drawCentredString(cx_5, cy - 0.15 * inch, "5")
+        canv.setStrokeColor(GOLD); canv.setLineWidth(8); canv.setFillColor(NAVY)
+        canv.circle(cx_0, cy + 0.20 * inch, 0.62 * inch, stroke=1, fill=1)
+        canv.setFillColor(GOLD); canv.setFont("Helvetica-Bold", 56)
+        canv.drawCentredString(cx_0, cy - 0.02 * inch, "B")
+        canv.setFillColor(GOLD); canv.setFont("Helvetica-Bold", 10)
+        canv.drawCentredString(1.25 * inch, 3.30 * inch, "Established in 1976")
+        canv.setFillColor(colors.white); canv.setFont("Helvetica", 9)
+        canv.drawCentredString(1.25 * inch, 3.05 * inch, "BECKERCAP.COM")
+        canv.drawCentredString(1.25 * inch, 2.87 * inch, "503.223.1720")
+        canv.restoreState()
+
+    def standard_decoration(canv, doc):
+        canv.saveState()
+        canv.setStrokeColor(RULE_GREY); canv.setLineWidth(0.5)
+        canv.line(0.6 * inch, 0.65 * inch, PAGE_W - 0.6 * inch, 0.65 * inch)
+        canv.setFillColor(TEXT_MED); canv.setFont("Helvetica", 8)
+        canv.drawString(0.6 * inch, 0.45 * inch,
+                        "Becker Capital Management | BECKERCAP.COM | 503.223.1720")
+        canv.drawRightString(PAGE_W - 0.6 * inch, 0.45 * inch,
+                             f"{footer_date}  |  Pg. {doc.page - 1}")
+        canv.restoreState()
+
+    doc = BaseDocTemplate(
+        buf, pagesize=LETTER,
+        leftMargin=0.6 * inch, rightMargin=0.6 * inch,
+        topMargin=0.55 * inch, bottomMargin=0.85 * inch,
+        title="Social Security Optimizer — Becker Capital Management",
+        author="Becker Capital Management")
+    cover_frame = Frame(2.9 * inch, 0.85 * inch,
+                        PAGE_W - 2.9 * inch - 0.6 * inch,
+                        PAGE_H - 0.85 * inch - 0.6 * inch,
+                        leftPadding=0, rightPadding=0, topPadding=0,
+                        bottomPadding=0, id="cover")
+    content_frame = Frame(0.6 * inch, 0.85 * inch,
+                          PAGE_W - 1.2 * inch, PAGE_H - 0.85 * inch - 0.55 * inch,
+                          leftPadding=0, rightPadding=0, topPadding=0,
+                          bottomPadding=0, id="content")
+    doc.addPageTemplates([
+        PageTemplate(id="cover", frames=[cover_frame], onPage=cover_decoration),
+        PageTemplate(id="content", frames=[content_frame], onPage=standard_decoration),
+    ])
+
+    def section_header(text):
+        rule = Table([[""]], colWidths=[PAGE_W - 1.2 * inch], rowHeights=[2])
+        rule.setStyle(TableStyle([("LINEBELOW", (0, 0), (-1, -1), 1.5, GOLD),
+                                  ("TOPPADDING", (0, 0), (-1, -1), 0),
+                                  ("BOTTOMPADDING", (0, 0), (-1, -1), 0)]))
+        return [Paragraph(text, H_SECTION), rule, Spacer(1, 6)]
+
+    def cover_field(value, label):
+        t = Table([[Paragraph(value, P_COVER_FIELD_VAL)],
+                   [Paragraph(label, P_COVER_FIELD_LABEL)]], colWidths=[4.5 * inch])
+        t.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, -1), LIGHT_BG),
+            ("LINEBEFORE", (0, 0), (0, -1), 3, GOLD),
+            ("LEFTPADDING", (0, 0), (-1, -1), 14),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+            ("TOPPADDING", (0, 0), (0, 0), 8), ("BOTTOMPADDING", (0, 0), (0, 0), 0),
+            ("TOPPADDING", (0, 1), (0, 1), 0), ("BOTTOMPADDING", (0, 1), (0, 1), 8),
+        ]))
+        return t
+
+    story = []
+
+    # ==================== COVER ====================
+    claim_str = " · ".join(
+        f"{p.label}: {best.claim_ages[p.label]}" for p in people)
+    story.append(Spacer(1, 0.3 * inch))
+    story.append(Paragraph(
+        f"SOCIAL SECURITY OPTIMIZER  •  "
+        f"{'COUPLE' if is_couple else 'SINGLE'}  •  "
+        f"{n_combos} STRATEGIES EVALUATED", H_TAGLINE))
+    story.append(Paragraph("Claiming Strategy<br/>Analysis", H_TITLE))
+    underline = Table([[""]], colWidths=[3.5 * inch], rowHeights=[3])
+    underline.setStyle(TableStyle([("LINEBELOW", (0, 0), (-1, -1), 2, GOLD)]))
+    story.append(underline)
+    story.append(Spacer(1, 0.25 * inch))
+
+    cover_fields = [
+        (claim_str, "Recommended Claiming Ages"),
+        (f"{best.prob_success*100:.1f}%", "Probability of Plan Success"),
+        (f"${snapshot['initial_portfolio']:,.0f}", "Investable Portfolio (today's $)"),
+        (f"${snapshot['gross_need']:,.0f} / yr", "Household Spending Need (today's $)"),
+        (f"{snapshot['eq_pct']}/{100 - snapshot['eq_pct']}", "Equity / Fixed Income"),
+        (f"{snapshot['inflation']*100:.2f}%", "Inflation / COLA"),
+    ]
+    if is_couple:
+        cover_fields.insert(2, (f"${best.survivor_floor_annual:,.0f} / yr",
+                                "Survivor Income Floor (today's $)"))
+    for v, l in cover_fields:
+        story.append(cover_field(v, l)); story.append(Spacer(1, 6))
+
+    story.append(Spacer(1, 0.2 * inch))
+    prep_table = Table(
+        [[Paragraph("<b>Prepared by:</b> Becker Capital Management", P_KEY_LABEL)],
+         [Paragraph(f"<b>Date:</b> {prep_date}", P_KEY_LABEL)]],
+        colWidths=[4.5 * inch])
+    prep_table.setStyle(TableStyle([("LEFTPADDING", (0, 0), (-1, -1), 0),
+                                    ("BOTTOMPADDING", (0, 0), (-1, -1), 2)]))
+    story.append(prep_table)
+    story.append(NextPageTemplate("content"))
+    story.append(PageBreak())
+
+    # ==================== METHODOLOGY / DISCLAIMER ====================
+    story.extend(section_header("Methodology & Disclaimer"))
+    for p in [
+        "This report identifies the Social Security claiming strategy that maximizes "
+        "the probability the household's investment portfolio sustains its spending "
+        "need across the full projection horizon. Every combination of claiming ages "
+        f"(62–70 for each claimant — {n_combos} in total) is evaluated by Monte Carlo "
+        "simulation using common random numbers, so differences in success rate reflect "
+        "the claiming decision rather than sampling noise.",
+        "Unlike breakeven analysis, which collapses longevity into a single point and "
+        "maximizes total dollars received, this approach values Social Security as "
+        "longevity insurance — and, for couples, explicitly accounts for the fact that "
+        "the higher earner's claim age sets the surviving spouse's benefit for the "
+        "remainder of their life (the 'survivor income floor').",
+        "Social Security is modeled with the statutory early-claim reduction and delayed "
+        "retirement credits, spousal and survivor benefits, and a cost-of-living "
+        "adjustment equal to the assumed inflation rate. The Social Security Fairness Act "
+        "(signed January 2025) repealed the Windfall Elimination Provision and Government "
+        "Pension Offset; no such reduction is applied.",
+        "<b>IMPORTANT:</b> Figures are hypothetical, do not reflect actual results, and are "
+        "not guarantees of future performance. This report is prepared by Becker Capital "
+        "Management for informational purposes only and does not constitute investment, "
+        "tax, or Social Security claiming advice. Confirm benefit estimates with the Social "
+        "Security Administration.",
+    ]:
+        story.append(Paragraph(p, P_DISCLAIM))
+    story.append(PageBreak())
+
+    # ==================== RECOMMENDED STRATEGY ====================
+    story.extend(section_header("Recommended Claiming Strategy"))
+    baseline = next(r for r in results
+                    if all(r.claim_ages[p.label] == 62 for p in people))
+    lift = (best.prob_success - baseline.prob_success) * 100
+    summary = (
+        f"The analysis recommends "
+        + ", ".join(f"<b>{p.label} claim at {best.claim_ages[p.label]}</b>"
+                    for p in people)
+        + f". This yields a <b>{best.prob_success*100:.1f}%</b> probability of plan "
+        f"success — <b>{lift:+.1f} points</b> versus the all-claim-at-62 baseline — "
+        f"with a median ending portfolio of <b>${best.median_terminal/1e6:,.2f}M</b>."
+    )
+    if is_couple:
+        summary += (
+            f" After the first death the surviving spouse receives "
+            f"<b>${best.survivor_floor_annual:,.0f}/yr</b> (today's dollars) in Social "
+            f"Security under this strategy — the longevity protection that breakeven "
+            f"analysis overlooks.")
+    story.append(Paragraph(summary, P_BODY))
+    story.append(Spacer(1, 8))
+
+    story.extend(section_header("Plan Success by Claiming Combination"))
+    story.append(Image(img_grid, width=6.6 * inch, height=5.4 * inch
+                       if is_couple else 3.2 * inch))
+    story.append(Paragraph(
+        "Monte Carlo probability of portfolio survival under each claiming "
+        "combination; the highlighted cell is the recommended strategy.", P_FIGCAP))
+    story.append(PageBreak())
+
+    story.extend(section_header("Social Security Income — Recommended Strategy"))
+    story.append(Image(img_stream, width=6.8 * inch, height=3.2 * inch))
+    story.append(Paragraph(
+        "Annual household Social Security income (today's dollars) across the "
+        "projection horizon under the recommended strategy.", P_FIGCAP))
+    story.append(Spacer(1, 10))
+
+    # ==================== TOP STRATEGIES TABLE ====================
+    story.extend(section_header("Top Strategies"))
+    ranked = sorted(results, key=lambda r: r.prob_success, reverse=True)[:8]
+    P_TH = ParagraphStyle("TH", fontName="Helvetica-Bold", fontSize=8.5,
+                          leading=11, textColor=colors.white, alignment=TA_CENTER)
+    P_TD = ParagraphStyle("TD", fontName="Helvetica", fontSize=8.5,
+                          leading=11, textColor=TEXT_DARK, alignment=TA_CENTER)
+    headers = (["Strategy (claim ages)", "Success", "Median Ending"]
+               + (["Survivor Floor"] if is_couple else []))
+    data = [[Paragraph(h, P_TH) for h in headers]]
+    for r in ranked:
+        ages = ", ".join(f"{p.label[:8]} {r.claim_ages[p.label]}" for p in people)
+        row = [Paragraph(ages, P_TD),
+               Paragraph(f"{r.prob_success*100:.1f}%", P_TD),
+               Paragraph(f"${r.median_terminal/1e6:,.2f}M", P_TD)]
+        if is_couple:
+            row.append(Paragraph(f"${r.survivor_floor_annual:,.0f}", P_TD))
+        data.append(row)
+    ncol = len(headers)
+    tbl = Table(data, colWidths=[(PAGE_W - 1.2 * inch) / ncol] * ncol)
+    tbl.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), NAVY),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, LIGHT_BG]),
+        ("BOX", (0, 0), (-1, -1), 0.5, RULE_GREY),
+        ("INNERGRID", (0, 0), (-1, -1), 0.25, RULE_GREY),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 5), ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+    ]))
+    story.append(tbl)
+    story.append(Spacer(1, 10))
+
+    # ==================== NOTES ====================
+    story.extend(section_header("Tax, IRMAA & Coordination Notes"))
+    for p in [
+        "<b>Taxation of benefits.</b> Up to 85% of Social Security becomes taxable as "
+        "provisional income rises, which can push the marginal rate on ordinary "
+        "withdrawals well above the stated bracket in that band (the 'tax torpedo').",
+        f"<b>IRMAA.</b> Medicare premiums step up at MAGI thresholds (2025: roughly "
+        f"${se.IRMAA_MAGI_TIER1_SINGLE:,} single / ${se.IRMAA_MAGI_TIER1_MARRIED:,} "
+        f"married). A delay strategy funded by large IRA withdrawals or Roth conversions "
+        f"can trip a surcharge tier.",
+        "<b>Gap-year Roth conversions.</b> The years between retirement and the higher "
+        "earner's claim are typically a low-income window well suited to Roth conversions.",
+    ]:
+        story.append(Paragraph(p, P_DISCLAIM))
+    assump = (
+        f"Assumption set: {ra.label} | Eq μ {ra.eq_mu*100:.2f}% σ {ra.eq_sigma*100:.2f}% · "
+        f"FI μ {ra.fi_mu*100:.2f}% σ {ra.fi_sigma*100:.2f}% | "
+        f"Equity/FI {snapshot['eq_pct']}/{100 - snapshot['eq_pct']} | "
+        f"Tax gross-up {snapshot['tax_gross_up']*100:.0f}% | "
+        f"Past performance is not indicative of future results."
+    )
+    story.append(Spacer(1, 6))
+    story.append(Paragraph(assump, P_DISCLAIM))
+
+    doc.build(story)
+    return buf.getvalue()
+
+
 # =============================================================================
 # Streamlit UI
 # =============================================================================
