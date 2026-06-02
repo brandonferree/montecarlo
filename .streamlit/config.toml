@@ -1,3 +1,9 @@
+[server]
+# Serve files from ./static/ at the URL path `app/static/...`. Used by the
+# Social Security Optimizer's "How to read this tool" client guide, which
+# opens static/ss_guide.html in a new browser tab.
+enableStaticServing = true
+
 [theme]
 # Becker Capital Management — Official Brand (dark)
 # Sourced from BCM brand guidelines (anthropic-skills:bcm-branding).

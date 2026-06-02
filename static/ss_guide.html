@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Social Security Optimizer — How to Read This Tool | Becker Capital Management</title>
+<style>
+  :root {
+    --midnight: #0C2331;
+    --midnight-2: #1A3548;
+    --canyon: #AD5E25;
+    --light: #EEEEED;
+    --muted: #B8C4D6;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--midnight);
+    color: var(--light);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.6;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 0 24px 80px; }
+  header {
+    background: linear-gradient(135deg, #061520 0%, var(--midnight) 60%);
+    border-bottom: 3px solid var(--canyon);
+    padding: 36px 24px 28px;
+  }
+  header .inner { max-width: 860px; margin: 0 auto; }
+  .eyebrow {
+    color: var(--canyon);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  h1 { font-size: 30px; margin: 0 0 6px; font-weight: 700; }
+  .sub { color: var(--muted); font-size: 15px; max-width: 640px; }
+  h2 {
+    color: #fff;
+    font-size: 21px;
+    margin: 38px 0 6px;
+    padding-bottom: 8px;
+    border-bottom: 1.5px solid var(--canyon);
+  }
+  h3 { color: var(--canyon); font-size: 15px; margin: 22px 0 2px; letter-spacing: .3px; }
+  p { margin: 6px 0 12px; }
+  .muted { color: var(--muted); }
+  .lead { font-size: 16px; color: var(--light); }
+  .card {
+    background: var(--midnight-2);
+    border-left: 3px solid var(--canyon);
+    border-radius: 4px;
+    padding: 14px 18px;
+    margin: 14px 0;
+  }
+  .tip {
+    background: rgba(173,94,37,0.12);
+    border: 1px solid rgba(173,94,37,0.35);
+    border-radius: 4px;
+    padding: 12px 16px;
+    margin: 16px 0;
+    font-size: 14px;
+  }
+  dl { margin: 4px 0 0; }
+  dt { font-weight: 700; color: #fff; margin-top: 14px; }
+  dd { margin: 2px 0 0; color: var(--muted); }
+  .pill {
+    display: inline-block;
+    background: var(--canyon);
+    color: var(--midnight);
+    font-weight: 700;
+    font-size: 11px;
+    letter-spacing: .5px;
+    padding: 2px 9px;
+    border-radius: 11px;
+    vertical-align: middle;
+  }
+  footer {
+    margin-top: 48px;
+    border-top: 1px solid rgba(255,255,255,0.12);
+    padding-top: 16px;
+    color: var(--muted);
+    font-size: 12px;
+  }
+  a { color: var(--canyon); }
+</style>
+</head>
+<body>
+<header>
+  <div class="inner">
+    <div class="eyebrow">Becker Capital Management &nbsp;•&nbsp; Est. 1976</div>
+    <h1>Social Security Optimizer</h1>
+    <div class="sub">A plain-language guide to the inputs and what the results mean.</div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <p class="lead">
+    This tool answers one question: <strong>at what age should you (and your spouse)
+    start Social Security so that your retirement plan has the best chance of
+    lasting your lifetime?</strong> It tests every possible combination of starting
+    ages and ranks them by how likely your savings are to last.
+  </p>
+
+  <div class="tip">
+    <strong>What makes this different.</strong> Most calculators show a "break-even age" —
+    the age at which waiting finally pays off if you live long enough. This tool instead
+    runs thousands of simulated market and lifespan scenarios and measures how often your
+    money lasts. It also shows the <em>survivor's</em> income — what the surviving spouse
+    keeps for the rest of their life — which simple break-even math ignores.
+  </div>
+
+  <h2>The inputs, one by one</h2>
+
+  <h3>Household</h3>
+  <dl>
+    <dt>Married couple / Single</dt>
+    <dd>Choose whether you're planning for one person or two. For couples, the tool
+      optimizes both people together, because one spouse's decision affects the other.</dd>
+  </dl>
+
+  <h3>Money</h3>
+  <dl>
+    <dt>Investable Portfolio</dt>
+    <dd>The total of your savings and investments that can be used to fund retirement —
+      brokerage accounts, IRAs, 401(k)s, and similar. Do not include your home.</dd>
+
+    <dt>Spending Need (Annual or Monthly)</dt>
+    <dd>How much you expect to spend each year (or month) in retirement, in today's
+      dollars. Enter your <em>total</em> need — the tool figures out how much Social
+      Security covers and how much your portfolio has to provide.</dd>
+
+    <dt>Portfolio Equity %</dt>
+    <dd>How your portfolio is invested. "Equity" means stocks (higher growth, more ups
+      and downs); the rest is fixed income / bonds (steadier). 60% is a common balanced
+      starting point.</dd>
+
+    <dt>Inflation / COLA</dt>
+    <dd>How fast prices — and your spending — rise each year. Social Security also rises
+      with inflation (its "cost-of-living adjustment"), so this number is applied to both.
+      2.5% is a reasonable long-term estimate.</dd>
+
+    <dt>Projection Horizon</dt>
+    <dd>How many years the plan looks ahead, starting from your current age. A longer
+      horizon is a more conservative (cautious) test.</dd>
+  </dl>
+
+  <h3>Longevity (age at death)</h3>
+  <dl>
+    <dt>Age at death — Primary / Spouse</dt>
+    <dd>How long you expect to live. This is the single most important input for the
+      claiming decision: the longer you live, the more valuable it is to wait, because a
+      larger check arrives for more years. If you're in good health with family longevity,
+      use a higher age.
+      <div class="card">
+        <strong>Why it matters so much:</strong> Social Security is essentially insurance
+        against living a <em>long</em> time. Starting later means a permanently larger,
+        inflation-protected check — protection that's most valuable exactly in the years
+        when your savings might otherwise run low.
+      </div>
+    </dd>
+  </dl>
+
+  <h3>Tax / IRMAA</h3>
+  <dl>
+    <dt>Effective tax gross-up on portfolio withdrawals</dt>
+    <dd>An optional way to account for taxes. Withdrawals from IRAs/401(k)s are taxable,
+      and part of your Social Security can be taxed too. Setting this above 0% makes the
+      tool assume your portfolio has to provide a bit extra to cover taxes. Leave it at 0%
+      if you'd rather see pre-tax figures. <span class="muted">Your advisor can help
+      you choose a realistic number.</span></dd>
+  </dl>
+
+  <h3>Return Assumptions</h3>
+  <dl>
+    <dt>Preset: BCM 2026 CMAs</dt>
+    <dd>Becker Capital's own 10-year forward-looking estimates for how stocks and bonds
+      may perform. "Custom" lets your advisor enter different assumptions.</dd>
+  </dl>
+
+  <h3>Each person's details</h3>
+  <dl>
+    <dt>Birth year</dt>
+    <dd>Sets your "Full Retirement Age" (between 66 and 67), the age at which you'd
+      receive 100% of your benefit.</dd>
+
+    <dt>Current age</dt>
+    <dd>Your age today.</dd>
+
+    <dt>FRA benefit / PIA ($/mo) <span class="pill">key number</span></dt>
+    <dd>Your estimated monthly benefit <em>at Full Retirement Age</em>. You'll find this
+      on your Social Security statement at <a href="https://www.ssa.gov/myaccount/" target="_blank" rel="noopener">ssa.gov/myaccount</a>
+      — look for the estimate at your "full retirement age." This is the figure the tool
+      adjusts up (for waiting) or down (for claiming early).</dd>
+  </dl>
+
+  <h2>How to read the results</h2>
+
+  <dl>
+    <dt>Recommended Strategy</dt>
+    <dd>The combination of starting ages that gave your plan the highest chance of
+      success, plus how much better it did than starting everything at 62.</dd>
+
+    <dt>Chance of Success</dt>
+    <dd>Out of thousands of simulated futures (different market returns), the share in
+      which your portfolio lasted the whole horizon. Higher is better; in the 80–95% range
+      is generally considered a healthy plan.</dd>
+
+    <dt>Survivor Income Floor (couples)</dt>
+    <dd>What the surviving spouse will receive in Social Security each year after the
+      first death. When the higher earner waits to claim, this floor goes up — protecting
+      the survivor for the rest of their life.</dd>
+
+    <dt>The grid / heatmap</dt>
+    <dd>Every starting-age combination, colored by chance of success (darker = better).
+      The highlighted box is the recommendation. It lets you see how forgiving or sensitive
+      the decision is.</dd>
+
+    <dt>Income Stream chart</dt>
+    <dd>Your household's Social Security income year by year under the recommended plan,
+      with the point marked where survivor benefits begin.</dd>
+  </dl>
+
+  <div class="tip">
+    <strong>A common result for couples:</strong> the lower earner claims earlier and the
+    higher earner waits (often to 70). This brings in some income sooner while locking in
+    the largest possible survivor benefit. The tool will tell you whether that pattern fits
+    your situation.
+  </div>
+
+  <h2>Important</h2>
+  <p class="muted">
+    This tool is for education and illustration only. Results depend on the assumptions you
+    enter and are not a guarantee of future outcomes, nor a recommendation to claim at any
+    particular age. Confirm your benefit estimates with the Social Security Administration
+    and review your strategy with your Becker Capital advisor before acting.
+  </p>
+
+  <footer>
+    Becker Capital Management &nbsp;|&nbsp; BECKERCAP.COM &nbsp;|&nbsp; 503.223.1720
+  </footer>
+
+</div>
+</body>
+</html>
