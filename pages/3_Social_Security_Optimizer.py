@@ -3,7 +3,7 @@ Becker Capital — Social Security Optimizer
 
 Finds the Social Security claiming strategy that maximizes PLAN SUCCESS (not a
 fixed-life-expectancy breakeven) by sweeping every claim-age combination and
-scoring each through the same Monte Carlo engine used by the main Cashflow
+scoring each through the same simulation engine used by the main Cashflow
 Portfolio Analysis page.
 
 Why plan-success and not breakeven? Breakeven math collapses a longevity
@@ -52,7 +52,7 @@ def _render_ss_header():
             <div class="becker-title">Social Security Optimizer</div>
             <div class="becker-subtitle">
               Find the claiming strategy that maximizes the probability your
-              plan succeeds — scored through Monte Carlo, with the survivor
+              plan succeeds — scored across thousands of simulated scenarios, with the survivor
               income floor surfaced explicitly.
             </div>
           </div>
@@ -254,7 +254,7 @@ def main():
         )
         n_combos = (9 if not is_couple else 81)
         with st.spinner(
-            f"Scoring {n_combos} claiming strategies through Monte Carlo…"
+            f"Scoring {n_combos} claiming strategies across thousands of simulated scenarios…"
         ):
             results = se.optimize_claim_strategies(
                 hh, gross_spending_need_annual=gross_need,
@@ -316,7 +316,7 @@ def main():
         # Grid chart.
         st.subheader("Plan Success by Claiming Combination")
         st.caption(
-            "Each cell is the Monte Carlo probability the portfolio survives "
+            "Each cell is the simulated probability the portfolio survives "
             "the full horizon under that claiming combination. The orange box "
             "marks the recommended strategy. Common random numbers are used so "
             "differences reflect the claiming decision, not sampling noise."

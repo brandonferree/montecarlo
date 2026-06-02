@@ -2572,7 +2572,7 @@ def build_ss_pdf(results, best, snapshot, prep_date: str | None = None) -> bytes
         "This report identifies the Social Security claiming strategy that maximizes "
         "the probability the household's investment portfolio sustains its spending "
         "need across the full projection horizon. Every combination of claiming ages "
-        f"(62–70 for each claimant — {n_combos} in total) is evaluated by Monte Carlo "
+        f"(62–70 for each claimant — {n_combos} in total) is evaluated by probabilistic "
         "simulation using common random numbers, so differences in success rate reflect "
         "the claiming decision rather than sampling noise.",
         "Unlike breakeven analysis, which collapses longevity into a single point and "
@@ -2620,7 +2620,7 @@ def build_ss_pdf(results, best, snapshot, prep_date: str | None = None) -> bytes
     story.append(Image(img_grid, width=6.6 * inch, height=5.4 * inch
                        if is_couple else 3.2 * inch))
     story.append(Paragraph(
-        "Monte Carlo probability of portfolio survival under each claiming "
+        "Simulated probability of portfolio survival under each claiming "
         "combination; the highlighted cell is the recommended strategy.", P_FIGCAP))
     story.append(PageBreak())
 
