@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Savings Goal Calculator — How to Read This Tool | Becker Capital Management</title>
+<style>
+  :root { --midnight:#0C2331; --midnight-2:#1A3548; --canyon:#AD5E25; --light:#EEEEED; --muted:#B8C4D6; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--midnight); color:var(--light);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; line-height:1.6; }
+  .wrap { max-width:860px; margin:0 auto; padding:0 24px 80px; }
+  header { background:linear-gradient(135deg,#061520 0%,var(--midnight) 60%);
+    border-bottom:3px solid var(--canyon); padding:36px 24px 28px; }
+  header .inner { max-width:860px; margin:0 auto; }
+  .eyebrow { color:var(--canyon); font-size:12px; font-weight:700; letter-spacing:2px; text-transform:uppercase; margin-bottom:8px; }
+  h1 { font-size:30px; margin:0 0 6px; font-weight:700; }
+  .sub { color:var(--muted); font-size:15px; max-width:640px; }
+  h2 { color:#fff; font-size:21px; margin:38px 0 6px; padding-bottom:8px; border-bottom:1.5px solid var(--canyon); }
+  h3 { color:var(--canyon); font-size:15px; margin:22px 0 2px; letter-spacing:.3px; }
+  p { margin:6px 0 12px; }
+  .muted { color:var(--muted); }
+  .lead { font-size:16px; }
+  .card { background:var(--midnight-2); border-left:3px solid var(--canyon); border-radius:4px; padding:14px 18px; margin:14px 0; }
+  .tip { background:rgba(173,94,37,0.12); border:1px solid rgba(173,94,37,0.35); border-radius:4px; padding:12px 16px; margin:16px 0; font-size:14px; }
+  dl { margin:4px 0 0; }
+  dt { font-weight:700; color:#fff; margin-top:14px; }
+  dd { margin:2px 0 0; color:var(--muted); }
+  .pill { display:inline-block; background:var(--canyon); color:var(--midnight); font-weight:700; font-size:11px; letter-spacing:.5px; padding:2px 9px; border-radius:11px; vertical-align:middle; }
+  footer { margin-top:48px; border-top:1px solid rgba(255,255,255,0.12); padding-top:16px; color:var(--muted); font-size:12px; }
+  a { color:var(--canyon); }
+</style>
+</head>
+<body>
+<header>
+  <div class="inner">
+    <div class="eyebrow">Becker Capital Management &nbsp;•&nbsp; Est. 1976</div>
+    <h1>Savings Goal Calculator</h1>
+    <div class="sub">A plain-language guide to the inputs and what the results mean.</div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <p class="lead">
+    This tool answers a single question in reverse: <strong>how much do you need to save each
+    year to reach a target retirement income with a chosen level of confidence?</strong> You
+    tell it the income you want; it works backward through thousands of simulated market futures
+    to find the required annual savings.
+  </p>
+
+  <div class="tip">
+    <strong>How it works.</strong> The calculator tries different savings amounts and, for each,
+    simulates your full lifecycle — saving years, then retirement spending years. It keeps
+    searching until it finds the smallest yearly savings that still hits your target chance of
+    success.
+  </div>
+
+  <h2>The inputs, one by one</h2>
+
+  <h3>Plan basics (sidebar)</h3>
+  <dl>
+    <dt>Current Savings</dt>
+    <dd>What you've already set aside for retirement today.</dd>
+
+    <dt>Inflation Rate</dt>
+    <dd>How fast prices rise each year. Your desired income is entered in today's dollars and
+      grown by this rate, so it keeps its real purchasing power. 3% is a common estimate.</dd>
+
+    <dt>Enter income amounts as (Annual / Monthly)</dt>
+    <dd>Convenience setting for typing your desired income — "Monthly" multiplies by 12 behind
+      the scenes.</dd>
+
+    <dt>Target Success Probability <span class="pill">confidence dial</span></dt>
+    <dd>How sure you want to be that the money lasts. 80% means you want the plan to succeed in
+      at least 80 out of 100 simulated futures. A higher target is more cautious — and requires
+      saving more.</dd>
+
+    <dt>Return Assumptions</dt>
+    <dd>How stocks and bonds are expected to perform. The <strong>BCM 2026 CMAs</strong> preset
+      uses Becker Capital's own 10-year estimates; "Custom" lets your advisor adjust them.</dd>
+  </dl>
+
+  <h3>Goal-Planning Scenarios</h3>
+  <p class="muted">Compare up to three — for example, retiring in 10, 20, or 30 years, or
+    different income targets.</p>
+  <dl>
+    <dt>Years to Retirement</dt>
+    <dd>How many years you'll keep saving before retirement begins.</dd>
+
+    <dt>Years in Retirement</dt>
+    <dd>How many years of income the plan must cover after you stop working.</dd>
+
+    <dt>Desired Income</dt>
+    <dd>The annual (or monthly) income you want in retirement, in today's dollars.</dd>
+
+    <dt>Accumulation Equity %</dt>
+    <dd>The share in stocks while you're saving; the rest is bonds. Higher equity means more
+      growth potential and more volatility.</dd>
+
+    <dt>Glide path &amp; Retirement Equity %</dt>
+    <dd>Optional. When on, the portfolio shifts to a more conservative stock/bond mix once
+      retirement starts — a common way to reduce risk as you begin drawing income.</dd>
+  </dl>
+
+  <h3>Note / Other Income (optional)</h3>
+  <dl>
+    <dt>Income streams</dt>
+    <dd>One-time or multi-year inflows shared across scenarios — a property sale, inheritance,
+      or note. These reduce the savings you need. Enter the annual amount (today's dollars),
+      start year, and number of years (1 = a single lump sum).</dd>
+  </dl>
+
+  <h2>How to read the results</h2>
+  <dl>
+    <dt>Required Savings (headline)</dt>
+    <dd>The minimum amount to save each year to hit your target confidence, for each scenario.</dd>
+
+    <dt>Required Savings by Confidence (70 / 80 / 90%)</dt>
+    <dd>The same answer at three confidence levels, so you can see the cost of being more or less
+      cautious.</dd>
+
+    <dt>Chance of Success &amp; Median at Retirement</dt>
+    <dd>The achieved probability of the plan lasting, and the typical portfolio value at the start
+      of retirement.</dd>
+
+    <dt>Lifecycle chart</dt>
+    <dd>The portfolio's path through both saving and spending phases, with the dotted line marking
+      where retirement begins.</dd>
+
+    <dt>"Capped" note</dt>
+    <dd>If you see this, the target may not be reachable with the given inputs — consider a longer
+      time horizon, a lower income target, or a different allocation.</dd>
+  </dl>
+
+  <h2>Important</h2>
+  <p class="muted">
+    This tool is for education and illustration only. Results depend on the assumptions you enter
+    and are not a guarantee of future outcomes or a recommendation of any strategy. Review your
+    plan with your Becker Capital advisor before acting.
+  </p>
+
+  <footer>Becker Capital Management &nbsp;|&nbsp; BECKERCAP.COM &nbsp;|&nbsp; 503.223.1720</footer>
+</div>
+</body>
+</html>

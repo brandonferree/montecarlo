@@ -132,6 +132,21 @@ def main():
     _inject_becker_css()
     _render_savings_header()
 
+    # Client-facing guide — opens the static HTML walkthrough in a new tab.
+    # Served from ./static/ via enableStaticServing (see .streamlit/config.toml).
+    st.markdown(
+        f"""
+        <a href="app/static/savings_guide.html" target="_blank" rel="noopener"
+           style="display:inline-block;text-decoration:none;
+                  background:{GOLD_HEX};color:#0C2331;font-weight:700;
+                  font-size:13px;letter-spacing:0.3px;padding:9px 18px;
+                  border-radius:4px;margin:4px 0 14px;">
+           📖 How to read this tool — client guide (opens in a new window)
+        </a>
+        """,
+        unsafe_allow_html=True,
+    )
+
     # Invalidate any stale session-state results carried over from an older
     # deploy. The version tag is bumped whenever simulate_goal_scenario adds
     # a new field that the renderer expects; without this guard the page

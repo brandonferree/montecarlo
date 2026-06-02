@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Cashflow Portfolio Analysis — How to Read This Tool | Becker Capital Management</title>
+<style>
+  :root { --midnight:#0C2331; --midnight-2:#1A3548; --canyon:#AD5E25; --light:#EEEEED; --muted:#B8C4D6; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--midnight); color:var(--light);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; line-height:1.6; }
+  .wrap { max-width:860px; margin:0 auto; padding:0 24px 80px; }
+  header { background:linear-gradient(135deg,#061520 0%,var(--midnight) 60%);
+    border-bottom:3px solid var(--canyon); padding:36px 24px 28px; }
+  header .inner { max-width:860px; margin:0 auto; }
+  .eyebrow { color:var(--canyon); font-size:12px; font-weight:700; letter-spacing:2px; text-transform:uppercase; margin-bottom:8px; }
+  h1 { font-size:30px; margin:0 0 6px; font-weight:700; }
+  .sub { color:var(--muted); font-size:15px; max-width:640px; }
+  h2 { color:#fff; font-size:21px; margin:38px 0 6px; padding-bottom:8px; border-bottom:1.5px solid var(--canyon); }
+  h3 { color:var(--canyon); font-size:15px; margin:22px 0 2px; letter-spacing:.3px; }
+  p { margin:6px 0 12px; }
+  .muted { color:var(--muted); }
+  .lead { font-size:16px; }
+  .card { background:var(--midnight-2); border-left:3px solid var(--canyon); border-radius:4px; padding:14px 18px; margin:14px 0; }
+  .tip { background:rgba(173,94,37,0.12); border:1px solid rgba(173,94,37,0.35); border-radius:4px; padding:12px 16px; margin:16px 0; font-size:14px; }
+  dl { margin:4px 0 0; }
+  dt { font-weight:700; color:#fff; margin-top:14px; }
+  dd { margin:2px 0 0; color:var(--muted); }
+  .pill { display:inline-block; background:var(--canyon); color:var(--midnight); font-weight:700; font-size:11px; letter-spacing:.5px; padding:2px 9px; border-radius:11px; vertical-align:middle; }
+  footer { margin-top:48px; border-top:1px solid rgba(255,255,255,0.12); padding-top:16px; color:var(--muted); font-size:12px; }
+  a { color:var(--canyon); }
+</style>
+</head>
+<body>
+<header>
+  <div class="inner">
+    <div class="eyebrow">Becker Capital Management &nbsp;•&nbsp; Est. 1976</div>
+    <h1>Cashflow Portfolio Analysis</h1>
+    <div class="sub">A plain-language guide to the inputs and what the results mean.</div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <p class="lead">
+    This tool projects how an investment portfolio might grow, supply income, or both —
+    across many possible market futures. Instead of assuming one fixed rate of return, it
+    runs <strong>thousands of simulated scenarios</strong> and shows the range of outcomes,
+    so you can see not just the average result but how likely it is your money lasts.
+  </p>
+
+  <div class="tip">
+    <strong>How to think about it.</strong> You describe a starting balance, how long the
+    plan runs, and any money going in (contributions) or coming out (distributions). The tool
+    then simulates the ups and downs of markets and reports the typical outcome along with the
+    good and bad cases.
+  </div>
+
+  <h2>The inputs, one by one</h2>
+
+  <h3>Portfolio basics (sidebar)</h3>
+  <dl>
+    <dt>Initial Investment</dt>
+    <dd>The starting value of the portfolio today.</dd>
+
+    <dt>Time Horizon (years)</dt>
+    <dd>How many years the projection runs. Often this is the years until — and through —
+      retirement.</dd>
+
+    <dt>Inflation Rate</dt>
+    <dd>How fast prices rise each year. All contribution and distribution amounts you enter
+      are in <em>today's dollars</em> and are grown by this rate over time, so the projection
+      reflects real-world purchasing power. 3% is a common long-term estimate.</dd>
+
+    <dt>Distribution Frequency</dt>
+    <dd>How often money is added or withdrawn during the year — Annual, Quarterly, or Monthly.
+      Monthly is the most realistic for retirement spending.</dd>
+
+    <dt>Enter amounts as (Annual / Monthly)</dt>
+    <dd>Convenience setting for how you type contribution and distribution figures. "Monthly"
+      simply multiplies by 12 behind the scenes.</dd>
+
+    <dt>Return Assumptions</dt>
+    <dd>How stocks ("Equity") and bonds ("Fixed Income") are expected to perform. The
+      <strong>BCM 2026 CMAs</strong> preset uses Becker Capital's own 10-year forward-looking
+      estimates; "Custom" lets your advisor enter different numbers.</dd>
+  </dl>
+
+  <h3>Scenarios</h3>
+  <p class="muted">You can compare up to three side-by-side — for example, three different
+    spending levels or three different stock/bond mixes.</p>
+  <dl>
+    <dt>Equity %</dt>
+    <dd>The share of the portfolio in stocks; the rest is bonds. Higher equity means more
+      growth potential but bigger swings.</dd>
+
+    <dt>Contribution Years &amp; Contribution amount</dt>
+    <dd>If you're still saving, how many years you'll keep adding money and how much per year
+      (today's dollars). Set years to 0 if you're no longer contributing.</dd>
+
+    <dt>Distribution amount</dt>
+    <dd>How much you'll withdraw for income each year (today's dollars), beginning after the
+      contribution years end.</dd>
+
+    <dt>Glide path (rebalance at retirement)</dt>
+    <dd>Optional. When on, the portfolio shifts to a different (usually more conservative)
+      stock/bond mix once retirement begins — common practice to reduce risk as you start
+      drawing income.</dd>
+
+    <dt>Retirement Equity %</dt>
+    <dd>The stock percentage to use after the glide-path switch.</dd>
+  </dl>
+
+  <h3>Note / Other Income (optional)</h3>
+  <dl>
+    <dt>Income streams</dt>
+    <dd>One-time or multi-year cash inflows shared across all scenarios — a property sale, an
+      inheritance, a note receivable, or similar. Enter the annual amount (today's dollars),
+      the year it starts, and how many years it lasts (1 = a single lump sum).</dd>
+  </dl>
+
+  <h2>How to read the results</h2>
+  <dl>
+    <dt>Median path &amp; percentile bands</dt>
+    <dd>The middle line is the typical outcome; the shaded band shows the range from weaker to
+      stronger markets. A wide band means more uncertainty.</dd>
+
+    <dt>Probability of success / chance the money lasts</dt>
+    <dd>The share of simulated futures in which the portfolio did not run out over the horizon.
+      Higher is better.</dd>
+
+    <dt>Ending values</dt>
+    <dd>The spread of final portfolio balances — what might be left to spend or leave behind.</dd>
+  </dl>
+
+  <h2>Important</h2>
+  <p class="muted">
+    This tool is for education and illustration only. Results depend on the assumptions you
+    enter and are not a guarantee of future outcomes or a recommendation of any strategy.
+    Review your plan with your Becker Capital advisor before acting.
+  </p>
+
+  <footer>Becker Capital Management &nbsp;|&nbsp; BECKERCAP.COM &nbsp;|&nbsp; 503.223.1720</footer>
+</div>
+</body>
+</html>
