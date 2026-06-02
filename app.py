@@ -3561,4 +3561,9 @@ if __name__ == "__main__":
         title="Savings Goal Calculator",
         icon="🎯",
     )
-    st.navigation([home_page, savings_page]).run()
+    social_security_page = st.Page(
+        "pages/3_Social_Security_Optimizer.py",
+        title="Social Security Optimizer",
+        icon="🧾",
+    )
+    st.navigation([home_page, savings_page, social_security_page]).run()
