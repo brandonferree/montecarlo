@@ -120,6 +120,13 @@ class Scenario:
     annual_distribution: float            # in today's (Year-1) dollars
     contribution_years: int = 0           # number of years to contribute (0 = none)
     annual_contribution: float = 0.0      # in today's (Year-1) dollars
+    # ----- Distribution start (optional override) -----
+    # Explicit 1-indexed year in which distributions begin. If None, distributions
+    # begin the year after the contribution phase ends (contribution_years + 1).
+    # Setting this LATER than contribution_years + 1 creates a "gap" of years in
+    # which the portfolio neither receives contributions nor pays distributions
+    # (it simply grows) — e.g. retire, defer drawing income for a few years.
+    distribution_start_year_override: Optional[int] = None
     # ----- Glide path (optional) -----
     # If set, the portfolio rebalances ONCE at the start of the distribution phase
     # to the retirement allocation. If left None, the same eq/fi weights apply
@@ -130,6 +137,10 @@ class Scenario:
     @property
     def distribution_start_year(self) -> int:
         """The first year in which a distribution is paid (1-indexed)."""
+        if self.distribution_start_year_override is not None:
+            # Never allow distributions to begin during the contribution phase.
+            return max(int(self.distribution_start_year_override),
+                       self.contribution_years + 1)
         return self.contribution_years + 1
 
     @property
@@ -283,6 +294,7 @@ def simulate_scenario(scen: Scenario, inputs: SimInputs, seed_offset: int) -> di
     bal = np.full(n, float(inputs.initial))
 
     contrib_years = max(0, int(scen.contribution_years))
+    dist_start = scen.distribution_start_year
 
     for y in range(1, yrs + 1):
         infl_factor = (1 + inputs.inflation) ** (y - 1)
@@ -294,9 +306,13 @@ def simulate_scenario(scen: Scenario, inputs: SimInputs, seed_offset: int) -> di
         if y <= contrib_years:
             annual_contrib = scen.annual_contribution * infl_factor
             per_period_cf = -annual_contrib / k
-        else:
+        elif y >= dist_start:
             annual_dist = scen.annual_distribution * infl_factor
             per_period_cf = annual_dist / k
+        else:
+            # "Gap" year: contributions have ended but distributions have not
+            # yet begun. No cash flow — the portfolio simply grows.
+            per_period_cf = 0.0
 
         # Shared extra inflows (note receivable, etc.). amount_in_year already
         # inflates to this year's nominal dollars. Added to the balance every
@@ -383,9 +399,9 @@ def total_contributed(scen: Scenario, inflation: float) -> float:
 def total_distributed(scen: Scenario, inflation: float, total_years: int) -> float:
     """
     Sum of distributions in nominal dollars across the distribution phase only.
-    Distributions begin at year `contribution_years + 1` and run through year `total_years`.
+    Distributions begin at `scen.distribution_start_year` and run through year `total_years`.
     """
-    start = int(scen.contribution_years) + 1
+    start = int(scen.distribution_start_year)
     if start > total_years or scen.annual_distribution <= 0:
         return 0.0
     return sum(
@@ -3332,17 +3348,28 @@ def main():
             contrib_amt = contrib_amt_entered * unit_div  # annualize for the model
 
             # ----- Distribution phase -----
-            dist_start_year = int(contrib_yrs) + 1
-            dist_label_suffix = (
-                f" — starts Yr {dist_start_year}" if contrib_yrs > 0 else ""
-            )
             st.markdown(
                 f"<div style='color:{GOLD_HEX}; font-size:12px; font-weight:700; "
                 f"letter-spacing:0.5px; margin-top:10px; padding-top:6px; "
                 f"border-top:1px solid rgba({CANYON_RGB},0.3);'>"
-                f"DISTRIBUTION PHASE{dist_label_suffix.upper()}</div>",
+                f"DISTRIBUTION PHASE</div>",
                 unsafe_allow_html=True,
             )
+            # When distributions begin, expressed as years from now (0 = today).
+            # Defaults to the year after the contribution phase ends, so the
+            # behavior is unchanged unless the user pushes it out to create a
+            # gap (e.g. retire now, defer drawing income for a few years).
+            dist_offset = st.number_input(
+                "Years Until Distributions Begin (0 = now)",
+                min_value=int(contrib_yrs), max_value=int(horizon) - 1,
+                value=int(contrib_yrs), step=1, key=f"dsy_{i}",
+                help="How many years from today distributions start. 0 = begin "
+                     "immediately. Must be at least the number of contribution "
+                     "years. Setting it higher than the contribution years "
+                     "creates a gap in which the portfolio neither contributes "
+                     "nor distributes — it simply grows.",
+            )
+            dist_start_year = int(dist_offset) + 1  # 1-indexed simulation year
             dist_entered = dollar_input(
                 f"{unit_word} Distribution ($, today's dollars)",
                 default=int(round(dist_def / unit_div)),
@@ -3353,12 +3380,14 @@ def main():
             )
             dist = dist_entered * unit_div  # annualize for the model
 
-            # Show what the first nominal distribution will be (for transparency)
-            if contrib_yrs > 0:
+            # Show when distributions begin and the first nominal amount.
+            if dist_start_year > 1:
                 nominal_first = dist * ((1 + inflation) ** (dist_start_year - 1))
+                gap = dist_start_year - 1 - int(contrib_yrs)
+                gap_note = (f" (after a {gap}-year gap)" if gap > 0 else "")
                 st.caption(
-                    f"Nominal Year-{dist_start_year} distribution: "
-                    f"**${nominal_first:,.0f}**"
+                    f"Distributions begin **Year {dist_start_year}**{gap_note} · "
+                    f"Nominal first distribution: **${nominal_first:,.0f}**"
                 )
 
             # ----- Glide Path (optional) -----
@@ -3400,7 +3429,7 @@ def main():
             if glide_enabled:
                 # Confirmation caption — make the transition explicit so the
                 # user can see exactly what will happen and when.
-                trans_yr = int(contrib_yrs) + 1
+                trans_yr = dist_start_year
                 if abs(ret_eq_pct - eq_pct) < 1e-6:
                     st.caption(
                         ":warning: Retirement equity matches accumulation "
@@ -3421,6 +3450,7 @@ def main():
                 annual_distribution=float(dist),
                 contribution_years=int(contrib_yrs),
                 annual_contribution=float(contrib_amt),
+                distribution_start_year_override=dist_start_year,
                 retirement_eq_weight=(ret_eq_pct / 100) if glide_enabled else None,
                 retirement_fi_weight=((100 - ret_eq_pct) / 100) if glide_enabled else None,
             ))
