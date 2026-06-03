@@ -1977,51 +1977,16 @@ def build_savings_goal_pdf(
         alloc_strs = " • ".join(individual_alloc_strs)
     any_glide = any(r["goal"].has_glide_path for r in goal_results)
 
-    story.append(Spacer(1, 0.3 * inch))
-    story.append(Paragraph(
-        f"SAVINGS GOAL CALCULATOR  •  "
-        f"{n_scen} SCENARIO{'S' if n_scen > 1 else ''}  •  "
-        f"{int(target_success_prob*100)}% TARGET CONFIDENCE",
-        H_TAGLINE,
-    ))
+    # Clean title page — no figures listed here (mirrors the Cashflow
+    # Portfolio Analysis report cover). The input values still appear in the
+    # fact strip and tables on the following pages.
+    story.append(Spacer(1, 1.5 * inch))
     story.append(Paragraph("Required Annual<br/>Savings Analysis", H_TITLE))
     underline = Table([[""]], colWidths=[3.5 * inch], rowHeights=[3])
     underline.setStyle(TableStyle([("LINEBELOW", (0, 0), (-1, -1), 2, GOLD)]))
     story.append(underline)
-    story.append(Spacer(1, 0.25 * inch))
+    story.append(Spacer(1, 0.7 * inch))
 
-    def cover_field(value, label):
-        t = Table([[Paragraph(value, P_COVER_FIELD_VAL)],
-                   [Paragraph(label, P_COVER_FIELD_LABEL)]],
-                  colWidths=[4.5 * inch])
-        t.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, -1), LIGHT_BG),
-            ("LINEBEFORE", (0, 0), (0, -1), 3, GOLD),
-            ("LEFTPADDING", (0, 0), (-1, -1), 14),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-            ("TOPPADDING", (0, 0), (0, 0), 8),
-            ("BOTTOMPADDING", (0, 0), (0, 0), 0),
-            ("TOPPADDING", (0, 1), (0, 1), 0),
-            ("BOTTOMPADDING", (0, 1), (0, 1), 8),
-        ]))
-        return t
-
-    cover_fields = [
-        (f"${initial_savings:,.0f}", "Current Savings (today's $)"),
-        (income_str, "Desired Retirement Income (today's $, escalates with inflation)"),
-        (yrs_to_ret_str, "Years to Retirement (accumulation)"),
-        (yrs_in_ret_str, "Years in Retirement (distribution)"),
-        (alloc_strs, f"Equity / Fixed Income ({n_scen} Scenario"
-                     f"{'s' if n_scen > 1 else ''})"),
-        (f"{int(target_success_prob*100)}%",
-         "Target Success Probability (portfolio survives all retirement years)"),
-        (f"{inflation*100:.2f}%", "Inflation Rate"),
-    ]
-    for v, l in cover_fields:
-        story.append(cover_field(v, l))
-        story.append(Spacer(1, 6))
-
-    story.append(Spacer(1, 0.25 * inch))
     prep_table = Table(
         [[Paragraph("<b>Prepared by:</b> Becker Capital Management", P_KEY_LABEL)],
          [Paragraph(f"<b>Date:</b> {prep_date}", P_KEY_LABEL)]],
@@ -2134,74 +2099,47 @@ def build_savings_goal_pdf(
 
     story.extend(section_header("Executive Summary"))
 
-    # Build the per-scenario savings descriptor
-    scen_descs = ", ".join(
-        f"<b>{r['goal'].name}</b> (save ${r['annual_savings']:,.0f}/yr "
-        f"× {r['goal'].years_to_retirement} yrs)"
-        for r in goal_results
-    )
-    glide_text = ""
-    if any_glide:
-        glide_text = (
-            "<br/><br/><b>Glide path:</b> One or more scenarios use a glide-path allocation "
-            "that shifts from a more aggressive accumulation-phase mix to a more "
-            "conservative retirement-phase mix at the start of distributions, reflecting "
-            "the common practice of de-risking around retirement to reduce sequence-of-"
-            "returns risk."
-        )
+    # The narrative summary and the standalone "Key Findings" section were
+    # removed for a cleaner look that mirrors the Cashflow Portfolio Analysis
+    # report. The Key Assumptions & Disclosures block (formerly at the end of
+    # the report) now sits directly beneath the Executive Summary header.
     ra = return_assumptions
-    method_text = (
-        f"Expected returns and volatility are derived from the "
-        f"<b>{ra.label}</b> assumption set: equity mean {ra.eq_mu*100:.2f}% "
-        f"(σ = {ra.eq_sigma*100:.2f}%), fixed income mean {ra.fi_mu*100:.2f}% "
-        f"(σ = {ra.fi_sigma*100:.2f}%). Per-period returns are drawn independently "
-        f"from a normal distribution parameterized to those annual figures."
+    ret_text = (
+        f"Equity expected return {ra.eq_mu*100:.2f}% (σ = {ra.eq_sigma*100:.2f}%); "
+        f"fixed income expected return {ra.fi_mu*100:.2f}% "
+        f"(σ = {ra.fi_sigma*100:.2f}%); source: {ra.label} | "
     )
-
-    # Optional additional-income paragraph (shared note receivable / installments)
-    inflow_text = ""
+    inflow_note = ""
     if extra_inflows:
-        parts = []
-        for ev in extra_inflows:
-            if ev.years <= 1:
-                parts.append(
-                    f"{ev.label} — a one-time ${ev.amount:,.0f} (today's $) in "
-                    f"Year {ev.start_year}"
-                )
-            else:
-                end_yr = ev.start_year + ev.years - 1
-                parts.append(
-                    f"{ev.label} — ${ev.amount:,.0f}/yr (today's $) in Years "
-                    f"{ev.start_year}–{end_yr}"
-                )
-        inflow_text = (
-            "<br/><br/>"
-            "<b>Additional income:</b> The following inflows are added to the "
-            "portfolio in every scenario, entered in today's dollars and inflated "
-            "forward; they reduce the savings required to hit the target: "
-            + "; ".join(parts) + "."
+        inflow_note = (
+            "Additional income inflows applied to every scenario (today's $, "
+            "inflated forward): "
+            + "; ".join(
+                (f"{ev.label} ${ev.amount:,.0f} one-time Yr {ev.start_year}"
+                 if ev.years <= 1 else
+                 f"{ev.label} ${ev.amount:,.0f}/yr Yrs {ev.start_year}–"
+                 f"{ev.start_year + ev.years - 1}")
+                for ev in extra_inflows
+            )
+            + " | "
         )
-
-    exec_text = (
-        f"This report calculates the <b>minimum annual savings</b> required to support a "
-        f"desired retirement income stream with a target success probability of "
-        f"<b>{int(target_success_prob*100)}%</b>, evaluated across {n_scen} planning "
-        f"scenario{'s' if n_scen > 1 else ''}: {scen_descs}. "
-        f"<b>Success</b> is defined as the portfolio surviving the entire retirement "
-        f"distribution phase (final balance &gt; $0) — i.e., the income goal is "
-        f"supported throughout retirement. "
-        f"All amounts are entered in today's (Year-1) dollars and inflated forward at "
-        f"{inflation*100:.1f}% annually to preserve real purchasing power."
-        f"{glide_text}"
-        f"{inflow_text}"
-        f"<br/><br/>"
-        f"{method_text} "
-        f"For each scenario, the simulator runs {n_paths:,} independent paths and a "
-        f"bisection search identifies the minimum annual savings amount whose success "
-        f"probability meets or exceeds the target. Results at additional confidence "
-        f"levels are also reported as a sensitivity analysis."
+    assump = (
+        f"<b>Key Assumptions &amp; Disclosures:</b> Current savings ${initial_savings:,.0f} | "
+        f"Income and savings amounts are entered in today's (Year-1) dollars and inflated "
+        f"forward at the inflation rate to preserve real purchasing power | "
+        f"{inflow_note}"
+        f"Annual cash-flow frequency | Annual escalation: {inflation*100:.1f}% | "
+        f"Target success probability: {int(target_success_prob*100)}% (P[portfolio "
+        f"survives all retirement years] ≥ target) | "
+        f"{ret_text}"
+        f"Required savings determined via bisection search "
+        f"(15–18 iterations, relative tolerance ~1.5%) | "
+        f"No tax drag, advisory fees, or rebalancing costs modeled | "
+        f"simulation: {n_paths:,} paths per candidate savings level | "
+        f"Past performance is not indicative of future results. This analysis is for "
+        f"illustrative purposes only and does not constitute investment advice."
     )
-    story.append(Paragraph(exec_text, P_BODY))
+    story.append(Paragraph(assump, P_DISCLAIM))
 
     # ==================== HEADLINE RESULT TABLE ====================
     story.extend(section_header("Required Annual Savings — Headline Result"))
@@ -2333,76 +2271,6 @@ def build_savings_goal_pdf(
         ("INNERGRID", (0, 1), (-1, -1), 0.25, RULE_GREY),
     ]))
     story.append(sens_tbl)
-    story.append(PageBreak())
-
-    # ==================== KEY FINDINGS ====================
-    story.extend(section_header("Key Findings"))
-    for r in goal_results:
-        g = r["goal"]
-        eq_a = round(g.accumulation_eq_weight * 100)
-        if g.has_glide_path:
-            eq_r = round(g.retirement_eq_weight * 100)
-            alloc_phrase = (
-                f"{eq_a}/{100 - eq_a} during accumulation, glide to "
-                f"{eq_r}/{100 - eq_r} in retirement"
-            )
-        else:
-            alloc_phrase = f"static {eq_a}/{100 - eq_a} throughout"
-        finding = (
-            f"<b>{g.name}:</b> "
-            f"To support ${g.desired_annual_income:,.0f}/yr (today's $) of retirement "
-            f"income for {g.years_in_retirement} years with "
-            f"<b>{int(target_success_prob*100)}% confidence</b>, the required annual "
-            f"savings is <b>${r['annual_savings']:,.0f}</b> for each of the "
-            f"{g.years_to_retirement} years prior to retirement. "
-            f"At this savings level, the median portfolio value at retirement is "
-            f"<b>{fmt_m(r['median_at_retirement'])}</b> "
-            f"(20th–80th percentile range: {fmt_m(r['p20_at_retirement'])} to "
-            f"{fmt_m(r['p80_at_retirement'])}). "
-            f"Allocation: {alloc_phrase}. "
-            f"Achieved success probability: {r['success_prob']*100:.1f}%."
-        )
-        story.append(Paragraph(finding, P_BODY))
-
-    story.append(Spacer(1, 8))
-    ret_text = (
-        f"Equity expected return {ra.eq_mu*100:.2f}% (σ = {ra.eq_sigma*100:.2f}%); "
-        f"fixed income expected return {ra.fi_mu*100:.2f}% "
-        f"(σ = {ra.fi_sigma*100:.2f}%); source: {ra.label} | "
-    )
-
-    inflow_note = ""
-    if extra_inflows:
-        inflow_note = (
-            "Additional income inflows applied to every scenario (today's $, "
-            "inflated forward): "
-            + "; ".join(
-                (f"{ev.label} ${ev.amount:,.0f} one-time Yr {ev.start_year}"
-                 if ev.years <= 1 else
-                 f"{ev.label} ${ev.amount:,.0f}/yr Yrs {ev.start_year}–"
-                 f"{ev.start_year + ev.years - 1}")
-                for ev in extra_inflows
-            )
-            + " | "
-        )
-
-    assump = (
-        f"<b>Key Assumptions &amp; Disclosures:</b> Current savings ${initial_savings:,.0f} | "
-        f"Income and savings amounts are entered in today's (Year-1) dollars and inflated "
-        f"forward at the inflation rate to preserve real purchasing power | "
-        f"{inflow_note}"
-        f"Annual cash-flow frequency | Annual escalation: {inflation*100:.1f}% | "
-        f"Target success probability: {int(target_success_prob*100)}% (P[portfolio "
-        f"survives all retirement years] ≥ target) | "
-        f"{ret_text}"
-        f"Required savings determined via bisection search "
-        f"(15–18 iterations, relative tolerance ~1.5%) | "
-        f"No tax drag, advisory fees, or rebalancing costs modeled | "
-        f"simulation: {n_paths:,} paths per candidate savings level | "
-        f"Past performance is not indicative of future results. This analysis is for "
-        f"illustrative purposes only and does not constitute investment advice."
-    )
-    story.append(Paragraph(assump, P_DISCLAIM))
 
     doc.build(story)
     return buf.getvalue()
