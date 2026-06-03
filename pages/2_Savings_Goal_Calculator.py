@@ -282,16 +282,21 @@ def main():
     goals: List[SavingsGoalScenario] = []
     cols = st.columns(n_scen)
     for i, col in enumerate(cols):
-        (name_def, ytr_def, yir_def, inc_def,
+        (_name_def, ytr_def, yir_def, inc_def,
          eq_def, glide_def, ret_eq_def) = DEFAULTS[i]
         with col:
+            # The scenario name is derived from Years to Retirement rather than
+            # entered separately (the dedicated Name field was redundant). Read
+            # the live value from session_state so the card title reflects the
+            # current input on rerun; fall back to the default on first render.
+            ytr_for_title = int(st.session_state.get(f"sg_ytr_{i}", ytr_def))
+            name = f"Retire in {ytr_for_title} yrs"
             st.markdown(
                 f"<div class='becker-scenario-card' "
                 f"style='--scenario-color:{SCENARIO_COLOR_HEX[i]};'>"
-                f"{name_def}</div>",
+                f"{name}</div>",
                 unsafe_allow_html=True,
             )
-            name = st.text_input("Name", value=name_def, key=f"sg_name_{i}")
 
             # ----- Time horizon -----
             ytr = st.number_input(
@@ -300,6 +305,8 @@ def main():
                 key=f"sg_ytr_{i}",
                 help="Number of accumulation years (during which you save).",
             )
+            # Authoritative name from the actual widget value.
+            name = f"Retire in {int(ytr)} yrs"
             yir = st.number_input(
                 "Years in Retirement",
                 min_value=1, max_value=60, value=yir_def, step=1,
