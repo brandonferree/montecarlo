@@ -3581,4 +3581,15 @@ if __name__ == "__main__":
         title="Social Security Optimizer",
         icon="🧾",
     )
-    st.navigation([home_page, savings_page, social_security_page]).run()
+
+    # The Social Security Optimizer is kept in the codebase but HIDDEN on the
+    # hosted (Streamlit Community Cloud) deployment — it is still under review
+    # and only meant for local testing for now. Cloud mounts the repo under
+    # /mount/src, so a working-directory check distinguishes hosted from local.
+    # To force it visible anywhere, set SHOW_SS_OPTIMIZER=1 in the environment.
+    _on_cloud = os.path.abspath(os.getcwd()).startswith("/mount/src")
+    _force_show = os.environ.get("SHOW_SS_OPTIMIZER") == "1"
+    pages = [home_page, savings_page]
+    if _force_show or not _on_cloud:
+        pages.append(social_security_page)
+    st.navigation(pages).run()
