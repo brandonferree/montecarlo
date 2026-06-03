@@ -2207,9 +2207,11 @@ def build_savings_goal_pdf(
         "Figure 1 — Median lifecycle portfolio value with 20th–80th percentile bands.",
         P_FIGCAP,
     ))
-    story.append(PageBreak())
+    story.append(Spacer(1, 10))
 
     # ==================== NEST EGG DISTRIBUTION ====================
+    # Flows directly beneath the lifecycle path (no page break) so the two
+    # related portfolio views sit together.
     story.extend(section_header("Portfolio Value at Retirement"))
     story.append(Paragraph(
         "The histograms below show the distribution of portfolio values at the start "
