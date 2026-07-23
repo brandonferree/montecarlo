@@ -9,6 +9,7 @@ Run locally:
 from __future__ import annotations
 
 import io
+import math
 import os
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -441,6 +442,54 @@ def _setup_mpl():
     })
 
 
+def _apply_money_yaxis(ax, vmax_dollars: float, target_ticks: int = 6,
+                       plot_scale: float = 1e6) -> None:
+    """
+    Set a y-axis whose ticks and units adapt to the magnitude of the data.
+
+    The paths are plotted in millions (`plot_scale`), but a $1.5M portfolio
+    on a fixed "$5M step" axis sits crushed against the bottom of the frame.
+    This picks a 1/2/2.5/5 × 10^n step aimed at ~`target_ticks` gridlines and
+    labels it in $K / $M / $B depending on the ceiling, so small and large
+    portfolios both fill the plot area.
+
+    `vmax_dollars` is the highest value that must be visible, in dollars.
+    """
+    vmax = float(vmax_dollars)
+    if not np.isfinite(vmax) or vmax <= 0:
+        vmax = 1000.0
+
+    raw_step = vmax / max(target_ticks, 2)
+    exp = math.floor(math.log10(raw_step))
+    base = raw_step / (10 ** exp)
+    for mult in (1, 2, 2.5, 5, 10):
+        if base <= mult:
+            step = mult * (10 ** exp)
+            break
+    top = math.ceil(vmax / step) * step
+    ticks = np.arange(0, top + step / 2, step)
+
+    # Label unit follows the ceiling, not the step.
+    if top >= 1e9:
+        unit_div, unit = 1e9, "B"
+    elif top >= 1e6:
+        unit_div, unit = 1e6, "M"
+    elif top >= 1e3:
+        unit_div, unit = 1e3, "K"
+    else:
+        unit_div, unit = 1.0, ""
+    # Fewest decimals that still render every tick exactly (a 2.5-unit step,
+    # e.g. $0.25M, needs two where a 0.5 step needs one).
+    scaled = ticks / unit_div
+    for decimals in range(0, 4):
+        if np.allclose(np.round(scaled, decimals), scaled, atol=1e-9):
+            break
+
+    ax.set_yticks(ticks / plot_scale)
+    ax.set_yticklabels([f"${t / unit_div:,.{decimals}f}{unit}" for t in ticks])
+    ax.set_ylim(0, top / plot_scale)
+
+
 def chart_paths_with_bands(results: List[dict], inputs: SimInputs) -> io.BytesIO:
     _setup_mpl()
     fig, ax = plt.subplots(figsize=(9.5, 5.0), dpi=180)
@@ -462,17 +511,16 @@ def chart_paths_with_bands(results: List[dict], inputs: SimInputs) -> io.BytesIO
         fontsize=12, pad=14,
     )
     ax.set_xlabel("Year")
-    ax.set_ylabel("Portfolio Value ($M)")
+    ax.set_ylabel("Portfolio Value")
     ax.set_xlim(0, inputs.horizon_years)
 
-    # Pick reasonable y-axis ceiling: ~max p80 across scenarios, rounded up
-    ceiling = max(np.max(r["p80_path"]) for r in results) / 1e6
-    step = 20 if ceiling > 60 else 10 if ceiling > 30 else 5
-    ymax = int(np.ceil(ceiling / step) * step)
-    yticks = list(range(0, ymax + 1, step))
-    ax.set_yticks(yticks)
-    ax.set_yticklabels([f"${y}M" for y in yticks])
-    ax.set_ylim(0, ymax)
+    # Y-axis ceiling: max p80 across scenarios (and the initial-investment
+    # reference line, which can sit above p80 in a drawdown scenario).
+    ceiling = max(
+        max(float(np.max(r["p80_path"])) for r in results),
+        float(inputs.initial),
+    )
+    _apply_money_yaxis(ax, ceiling)
     ax.grid(True, alpha=0.25, linestyle=":")
     ax.set_axisbelow(True)
     ax.legend(loc="upper left", frameon=True, framealpha=0.95, fontsize=9)
@@ -1645,17 +1693,12 @@ def chart_lifecycle_paths(
         fontsize=12, pad=14,
     )
     ax.set_xlabel("Year")
-    ax.set_ylabel("Portfolio Value ($M)")
+    ax.set_ylabel("Portfolio Value")
     ax.set_xlim(0, max_horizon)
 
     # Y-axis: scale by max p80 across scenarios
-    ceiling = max(np.max(r["p80_path"]) for r in goal_results) / 1e6
-    step = 20 if ceiling > 60 else 10 if ceiling > 30 else 5
-    ymax = int(np.ceil(ceiling / step) * step)
-    yticks = list(range(0, ymax + 1, step))
-    ax.set_yticks(yticks)
-    ax.set_yticklabels([f"${y}M" for y in yticks])
-    ax.set_ylim(0, ymax)
+    ceiling = max(float(np.max(r["p80_path"])) for r in goal_results)
+    _apply_money_yaxis(ax, ceiling)
     ax.grid(True, alpha=0.25, linestyle=":")
     ax.set_axisbelow(True)
     ax.legend(loc="upper left", frameon=True, framealpha=0.95, fontsize=8.5)
